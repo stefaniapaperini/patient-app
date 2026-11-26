@@ -97,7 +97,17 @@ export async function fhirRequest<T = Resource>(
     done({ status: 0, error: "Network error: could not reach the app server." });
     throw new FhirError("Network error: could not reach the app server. Is it running?", 0);
   }
-  const text = await res.text();
+  // Reading the body can fail too (cancelled while downloading, connection dropped): close the
+  // log entry first, or it would stay "pending" for good.
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (e) {
+    const aborted = e instanceof DOMException && e.name === "AbortError";
+    done({ status: aborted ? 0 : res.status, error: aborted ? "Cancelled (the page no longer needed this request)." : "The response could not be read." });
+    if (aborted) throw e;
+    throw new FhirError("The response from the server could not be read.", res.status);
+  }
   let body: unknown;
   try {
     body = text ? JSON.parse(text) : undefined;

@@ -187,10 +187,13 @@ export function normalizePath(path: string): string {
 /** Explanation for a field of a resource, or undefined if the glossary has none. */
 export function fieldDoc(resourceType: string | undefined, path: string): string | undefined {
   const parts = normalizePath(path).split(".");
-  // Try the full path with the type, then shorter suffixes: "Patient.name.given", "name.given", "given".
+  // "Type.field" entries describe top-level fields only, so they are tried for the full path
+  // alone: Patient.contact[0].name is the contact's name, not "Patient.name". Generic entries are
+  // then tried on shorter suffixes: "name.given", "given".
+  const full = parts.join(".");
+  if (resourceType && FIELDS[`${resourceType}.${full}`]) return FIELDS[`${resourceType}.${full}`];
   for (let i = 0; i < parts.length; i++) {
     const suffix = parts.slice(i).join(".");
-    if (resourceType && FIELDS[`${resourceType}.${suffix}`]) return FIELDS[`${resourceType}.${suffix}`];
     if (FIELDS[suffix]) return FIELDS[suffix];
   }
   return undefined;

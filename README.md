@@ -73,7 +73,8 @@ The app has Postman-like tools built in, for checking the FHIR data behind the s
   On an empty vital-sign chart, **“Why is this empty?” → Check the server** fetches all of the
   patient’s Observations without the code filter and says whether the data is missing on the server
   or the query is the problem.
-- **Request log** (header button, while the inspector is on): every FHIR request the page made, newest first,
+- **Request log** (header button, while the inspector is on): every FHIR request made while the inspector
+  is on, newest first (nothing is recorded while it's off, and switching it off empties the log),
   with the full response, **Copy as curl** and **Open in console**.
 - **FHIR Console** (`/console`, linked in the header while the inspector is on): send your own GET, POST or PUT requests through the proxy, with
   parameter suggestions, an explanation of the request before you send it, paging and examples.

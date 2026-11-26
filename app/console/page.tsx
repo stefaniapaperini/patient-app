@@ -3,11 +3,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestCard } from "@/components/inspector/RequestCard";
-import { fhirRequest, nextLink, proxyUrl } from "@/lib/fhir/client";
+import { FhirError, fhirRequest, nextLink, proxyUrl } from "@/lib/fhir/client";
 import type { Bundle } from "@/lib/fhir/types";
 import { explainRequest } from "@/lib/inspector/explain";
 import { PARAMS, specUrl } from "@/lib/inspector/glossary";
-import { entriesFor, useInspector, type LogEntry } from "@/lib/inspector/store";
+import type { LogEntry } from "@/lib/inspector/store";
 
 const METHODS = ["GET", "POST", "PUT"] as const;
 type Method = (typeof METHODS)[number];
@@ -60,11 +60,12 @@ export default function ConsolePage() {
 
 function Console() {
   const params = useSearchParams();
-  const { log } = useInspector();
   const [method, setMethod] = useState<Method>("GET");
   const [url, setUrl] = useState("Patient?_count=5");
   const [body, setBody] = useState("");
-  const [sentUrl, setSentUrl] = useState<string>();
+  /** The last response, kept here (not in the request log, which only records while the inspector is on). */
+  const [result, setResult] = useState<LogEntry>();
+  const [seq, setSeq] = useState(0);
   const [sending, setSending] = useState(false);
   const [inputError, setInputError] = useState<string>();
 
@@ -77,7 +78,7 @@ function Console() {
     setMethod((METHODS as readonly string[]).includes(m) ? (m as Method) : "GET");
     setUrl(cleanUrl(u));
     setBody(params.get("body") ?? "");
-    setSentUrl(undefined);
+    setResult(undefined);
     setInputError(undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramKey]);
@@ -85,16 +86,16 @@ function Console() {
   const explained = useMemo(() => (cleanUrl(url) ? explainRequest(method, cleanUrl(url)) : undefined), [method, url]);
   const type = explained?.resourceType && TYPES.includes(explained.resourceType) ? explained.resourceType : undefined;
 
-  // The log entries of the request this console sent last (and the later pages, if followed).
-  const result: LogEntry[] = sentUrl ? entriesFor(log, sentUrl).slice(0, 1) : [];
-  const last = result[0];
+  const last = result;
   const next = last?.responseBody && (last.responseBody as Bundle).resourceType === "Bundle" ? nextLink(last.responseBody as Bundle) : undefined;
 
   const send = async (overrideUrl?: string) => {
     setInputError(undefined);
     const target = overrideUrl ?? cleanUrl(url);
+    // "Next page" always follows a link with GET, whatever the method box says.
+    const m: Method = overrideUrl ? "GET" : method;
     let json: unknown;
-    if (method !== "GET") {
+    if (m !== "GET") {
       try {
         json = JSON.parse(body);
       } catch (e) {
@@ -110,11 +111,22 @@ function Console() {
       return;
     }
     setSending(true);
-    setSentUrl(proxied);
+    const id = seq + 1;
+    setSeq(id);
+    const started = performance.now();
+    const base: LogEntry = { id, method: m, url: proxied, startedAt: Date.now(), requestBody: json };
     try {
-      await fhirRequest(target, { method: overrideUrl ? "GET" : method, json });
-    } catch {
-      // The error (status, OperationOutcome) is in the log entry, shown below.
+      const res = await fhirRequest(target, { method: m, json });
+      setResult({ ...base, status: res.status, responseBody: res.body, location: res.location, durationMs: Math.round(performance.now() - started) });
+    } catch (e) {
+      const fe = e instanceof FhirError ? e : undefined;
+      setResult({
+        ...base,
+        status: fe?.status ?? 0,
+        responseBody: fe?.outcome,
+        error: e instanceof Error ? e.message : String(e),
+        durationMs: Math.round(performance.now() - started),
+      });
     } finally {
       setSending(false);
     }
@@ -219,7 +231,7 @@ function Console() {
           {inputError && <div className="req-error">{inputError}</div>}
         </form>
 
-        {explained && !sentUrl && (
+        {explained && !result && (
           <div className="console-preview">
             <h2 className="small muted">What this request will do</h2>
             <p>
@@ -249,12 +261,12 @@ function Console() {
                   Next page →
                 </button>
               )}
-              <button type="button" className="btn btn-sm" onClick={() => setSentUrl(undefined)}>
+              <button type="button" className="btn btn-sm" onClick={() => setResult(undefined)}>
                 Clear
               </button>
             </div>
           </div>
-          <RequestCard key={last.id} entries={result} defaultOpen showConsoleLink={false} />
+          <RequestCard key={last.id} entries={[last]} defaultOpen showConsoleLink={false} />
         </div>
       )}
 
@@ -270,7 +282,7 @@ function Console() {
                   setMethod(x.method);
                   setUrl(x.url);
                   setBody(x.body ?? "");
-                  setSentUrl(undefined);
+                  setResult(undefined);
                   setInputError(undefined);
                 }}
               >

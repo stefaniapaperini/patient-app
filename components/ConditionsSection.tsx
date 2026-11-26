@@ -14,7 +14,7 @@ import {
   isConditionActive,
 } from "@/lib/fhir/format";
 import type { Condition } from "@/lib/fhir/types";
-import { useInspector, type InspectTarget } from "@/lib/inspector/store";
+import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 type StatusFilter = "active" | "inactive" | "all";
@@ -23,7 +23,7 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [text, setText] = useState("");
   const query = `Condition?${new URLSearchParams({ patient: patientId, _count: "200" })}`;
-  const { enabled: inspecting } = useInspector();
+  const inspecting = useInspectorEnabled();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
       const { entries } = await fetchAllPages<Condition>(query, { signal });

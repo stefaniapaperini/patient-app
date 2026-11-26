@@ -8,7 +8,7 @@ import { fetchAllPages, fhirFetch, matches } from "@/lib/fhir/client";
 import { capitalize, formatDate, formatDose, formatFrequency, formatRoute } from "@/lib/fhir/format";
 import { includedMedications, isMedicationActive, medicationName, normalizeRef, unresolvedRefs } from "@/lib/fhir/medications";
 import type { Medication, MedicationRequest } from "@/lib/fhir/types";
-import { useInspector, type InspectTarget } from "@/lib/inspector/store";
+import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 type StatusFilter = "active" | "all";
@@ -27,7 +27,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
   const [status, setStatus] = useState<StatusFilter>("active");
   // _include asks the server to return referenced Medication resources in the same Bundle.
   const query = `MedicationRequest?${new URLSearchParams({ patient: patientId, _include: "MedicationRequest:medication", _count: "200" })}`;
-  const { enabled: inspecting } = useInspector();
+  const inspecting = useInspectorEnabled();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
       const { entries } = await fetchAllPages<MedicationRequest>(query, { signal });
@@ -48,7 +48,8 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
           }),
         );
       }
-      return { requests, known, failed };
+      // Referenced Medications fetched one by one (not returned by _include): the inspector shows those GETs too.
+      return { requests, known, failed, fetchedSeparately: new Set(missing) };
     },
     [patientId],
   );
@@ -134,7 +135,8 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
                       description: med
                         ? "The prescription (MedicationRequest) refers to a separate Medication resource through medicationReference, so the name comes from that Medication’s code."
                         : "One MedicationRequest. The name comes from medicationCodeableConcept, the dose, frequency and route from dosageInstruction[0].",
-                      requests: [query],
+                      requests:
+                        ref && data?.fetchedSeparately.has(normalizeRef(ref)) ? [query, normalizeRef(ref)] : [query],
                       resources: med ? [r, med] : [r],
                       highlight: ["medicationCodeableConcept", "medicationReference", "dosageInstruction", "status", "authoredOn", "code"],
                     });

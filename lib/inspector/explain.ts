@@ -72,18 +72,31 @@ export function explainRequest(method: string, url: string): ExplainedRequest {
   };
 }
 
+/** Quotes text for a POSIX shell: inside single quotes nothing is expanded ($, `, \, "). */
+export function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * A curl command that runs the same request directly against the FHIR server. The real base URL
  * and token are not known in the browser (and must not be): the command uses $FHIR_BASE_URL and
  * $FHIR_TOKEN, which `set -a; source .env; set +a` puts in the shell.
+ *
+ * Only those two variables are expanded. The path, query and body come from the page (and can be
+ * typed into the console or arrive in a link), so they are single-quoted: a URL containing
+ * $(…) or backticks must not run anything when the command is pasted into a terminal.
  */
 export function toCurl(method: string, url: string, body?: unknown): string {
   const { path, query } = splitUrl(url);
-  const target = `$FHIR_BASE_URL${path ? `/${path}` : ""}${query ? `?${query}` : ""}`;
-  const lines = [`curl -X ${method.toUpperCase()} "${target}"`, `  -H "Authorization: Bearer $FHIR_TOKEN"`, `  -H "Accept: application/fhir+json"`];
+  const rest = `${path ? `/${path}` : ""}${query ? `?${query}` : ""}`;
+  const m = method.toUpperCase().replace(/[^A-Z]/g, "");
+  const lines = [
+    `curl -X ${m} "$FHIR_BASE_URL"${rest ? shellQuote(rest) : ""}`,
+    `  -H "Authorization: Bearer $FHIR_TOKEN"`,
+    `  -H "Accept: application/fhir+json"`,
+  ];
   if (body !== undefined) {
-    const json = JSON.stringify(body).replace(/'/g, `'\\''`);
-    lines.push(`  -H "Content-Type: application/fhir+json"`, `  --data '${json}'`);
+    lines.push(`  -H "Content-Type: application/fhir+json"`, `  --data ${shellQuote(JSON.stringify(body))}`);
   }
   return lines.join(" \\\n");
 }

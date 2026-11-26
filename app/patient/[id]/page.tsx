@@ -12,7 +12,7 @@ import { ErrorBanner, Loading } from "@/components/ui";
 import { fhirFetch, FhirError } from "@/lib/fhir/client";
 import { formatDate, formatGender, formatName } from "@/lib/fhir/format";
 import type { Patient } from "@/lib/fhir/types";
-import { useInspector, type InspectTarget } from "@/lib/inspector/store";
+import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 function age(birthDate?: string): string | undefined {
@@ -42,7 +42,7 @@ export default function PatientDetailPage() {
   );
 
   const phone = patient?.telecom?.find((t) => t.system === "phone")?.value;
-  const { enabled: inspecting } = useInspector();
+  const inspecting = useInspectorEnabled();
   const readUrl = `Patient/${encodeURIComponent(id)}`;
   // One target per field, so the panel highlights exactly the JSON behind what was clicked.
   const field =

@@ -3,9 +3,13 @@
 /**
  * FHIR Inspector state, shared by the whole app without a React provider:
  * - whether inspector mode is on (off on every page load; never stored),
- * - a log of every FHIR request the app made (most recent last, capped),
+ * - a log of the FHIR requests made while the inspector is on (most recent last, capped). Nothing
+ *   is recorded while it is off, and switching it off empties the log, so patient data isn't kept
+ *   in memory for a feature nobody is using,
  * - what the side panel is showing.
- * Components read it with useInspector(); the FHIR client writes to it via recordRequest().
+ * The panel reads everything with useInspector(). Page components only need to know whether the
+ * inspector is on: they use useInspectorEnabled(), so a new log entry doesn't re-render them.
+ * The FHIR client writes to the log via recordRequest().
  */
 import { useSyncExternalStore } from "react";
 import type { Resource } from "@/lib/fhir/types";
@@ -53,13 +57,23 @@ interface State {
   panelOpen: boolean;
   view: PanelView;
   target: InspectTarget | null;
+  /** Goes up on every inspect(), so the panel starts fresh even for the same resource. */
+  targetSeq: number;
   /** Log entry expanded in the request log. */
   selectedLogId: number | null;
 }
 
 const MAX_LOG = 150;
 
-let state: State = { enabled: false, log: [], panelOpen: false, view: "element", target: null, selectedLogId: null };
+let state: State = {
+  enabled: false,
+  log: [],
+  panelOpen: false,
+  view: "element",
+  target: null,
+  targetSeq: 0,
+  selectedLogId: null,
+};
 let nextId = 1;
 const listeners = new Set<() => void>();
 
@@ -79,17 +93,32 @@ export function useInspector(): State {
   return useSyncExternalStore(subscribe, () => state, () => SERVER_STATE);
 }
 
+/** The current state, outside React (for tests and event handlers). */
+export function getInspectorState(): State {
+  return state;
+}
+
+/** Just the on/off switch: re-renders only when it changes, not on every logged request. */
+export function useInspectorEnabled(): boolean {
+  return useSyncExternalStore(subscribe, () => state.enabled, () => false);
+}
+
+/** Number of log entries, for the header button. */
+export function useLogCount(): number {
+  return useSyncExternalStore(subscribe, () => state.log.length, () => 0);
+}
+
 /**
  * Turns inspector mode on or off. Deliberately not stored: the app always starts as a plain
  * patient app, and the setting lasts only until the page is reloaded (moving between pages
  * inside the app keeps it).
  */
 export function setEnabled(enabled: boolean) {
-  set(enabled ? { enabled } : { enabled, panelOpen: false, target: null });
+  set(enabled ? { enabled } : { enabled, panelOpen: false, target: null, log: [], selectedLogId: null });
 }
 
 export function inspect(target: InspectTarget) {
-  set({ target, panelOpen: true, view: "element" });
+  set({ target, targetSeq: state.targetSeq + 1, panelOpen: true, view: "element" });
 }
 
 export function openPanel(view: PanelView, selectedLogId: number | null = state.selectedLogId) {
@@ -100,7 +129,6 @@ export function closePanel() {
   set({ panelOpen: false });
 }
 
-
 export function selectLog(id: number | null) {
   set({ selectedLogId: id });
 }
@@ -109,8 +137,14 @@ export function clearLog() {
   set({ log: [], selectedLogId: null });
 }
 
-/** Called by the FHIR client before a request; returns a function to call with the outcome. */
+const NOOP = () => {};
+
+/**
+ * Called by the FHIR client before a request; returns a function to call (once) with the outcome.
+ * Does nothing while the inspector is off.
+ */
 export function recordRequest(entry: Omit<LogEntry, "id" | "startedAt">): (done: Partial<LogEntry>) => void {
+  if (!state.enabled) return NOOP;
   const id = nextId++;
   const started = performance.now();
   const e: LogEntry = { ...entry, id, startedAt: Date.now() };

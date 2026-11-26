@@ -42,17 +42,21 @@ export function usePatientSearch(term: string) {
     // A loadMore from the previous search may still be running; its result is ignored (runId
     // changed) and it won't clear loadingMore itself, so clear it here or scrolling stays stuck.
     setLoadingMore(false);
+    // The inspector must show the request actually tried for *this* search, also when it fails,
+    // never the previous search's.
+    setRequestUrl(undefined);
+    let tried = patientSearchUrl(term, contains.current);
 
     const run = async () => {
       let bundle: Bundle<Patient>;
-      let url = patientSearchUrl(term, contains.current);
+      let url = tried;
       try {
         bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
       } catch (e) {
         // HAPI answers 400 for an unknown modifier, or 405 ("HAPI-1258") when :contains is disabled.
         if (term.trim() && contains.current && e instanceof FhirError && (e.status === 400 || e.status === 405 || e.status === 501)) {
           contains.current = false;
-          url = patientSearchUrl(term, false);
+          url = tried = patientSearchUrl(term, false);
           bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
         } else throw e;
       }
@@ -69,6 +73,7 @@ export function usePatientSearch(term: string) {
       })
       .catch((e) => {
         if (id !== runId.current || ctrl.signal.aborted) return;
+        setRequestUrl(tried);
         setPatients([]);
         setTotal(undefined);
         setNext(undefined);

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { openPanel, setEnabled, useInspector } from "@/lib/inspector/store";
+import { openPanel, setEnabled, useInspectorEnabled, useLogCount } from "@/lib/inspector/store";
 
 /**
  * Header controls. The switch turns on "learning mode": with it off the header shows only the
@@ -11,7 +11,8 @@ import { openPanel, setEnabled, useInspector } from "@/lib/inspector/store";
  * stays visible while you're on it.
  */
 export function InspectorToggle() {
-  const { enabled, log } = useInspector();
+  const enabled = useInspectorEnabled();
+  const logCount = useLogCount();
   const pathname = usePathname();
   const onConsole = pathname === "/console";
   return (
@@ -23,7 +24,7 @@ export function InspectorToggle() {
       )}
       {enabled && (
         <button type="button" className="btn btn-sm" onClick={() => openPanel("log")}>
-          Request log ({log.length})
+          Request log ({logCount})
         </button>
       )}
       {enabled && (

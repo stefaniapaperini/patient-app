@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { proxyUrl } from "@/lib/fhir/client";
+import { errorMessage, fetchAllPages, proxyUrl } from "@/lib/fhir/client";
 import type { Resource } from "@/lib/fhir/types";
 import { specUrl } from "@/lib/inspector/glossary";
 import {
@@ -31,7 +31,7 @@ const TITLES: Record<PanelView, string> = {
  * inspected element, the request log, or the FHIR basics. Views link to each other where useful.
  */
 export function InspectorPanel() {
-  const { enabled, panelOpen, view, target, log } = useInspector();
+  const { enabled, panelOpen, view, target, targetSeq, log } = useInspector();
   const open = enabled && panelOpen;
 
   // Leave room for the panel so it doesn't cover the page.
@@ -65,7 +65,9 @@ export function InspectorPanel() {
         </button>
       </div>
       <div className="inspector-body">
-        {view === "element" && <ElementTab target={target} log={log} />}
+        {/* Keyed by inspect count: every inspect starts fresh, so its highlighted fields are expanded
+            even when the same resource was shown before with other highlights. */}
+        {view === "element" && <ElementTab key={targetSeq} target={target} log={log} />}
         {view === "log" && <LogTab log={log} />}
         {view === "learn" && <LearnTab />}
       </div>
@@ -82,7 +84,7 @@ function ElementTab({ target, log }: { target: InspectTarget | null; log: LogEnt
           button, to see the FHIR request and resources it was built from.
         </p>
         <p className="small">
-          Every request the app makes is also in the{" "}
+          Every request the app makes while the inspector is on is also in the{" "}
           <button type="button" className="btn btn-link" onClick={() => openPanel("log")}>
             request log
           </button>
@@ -105,9 +107,7 @@ function ElementTab({ target, log }: { target: InspectTarget | null; log: LogEnt
         return entries.length ? (
           <RequestCard key={r} entries={entries} />
         ) : (
-          <p key={r} className="small muted">
-            <code>{displayUrl(proxyUrl(r))}</code> is not in the log yet. Reload the page with the inspector on.
-          </p>
+          <MissingRequest key={r} request={r} />
         );
       })}
 
@@ -139,6 +139,36 @@ function ElementTab({ target, log }: { target: InspectTarget | null; log: LogEnt
         </button>
         .
       </p>
+    </div>
+  );
+}
+
+/**
+ * A request that isn't in the log: it ran before the inspector was switched on (nothing is
+ * recorded while it's off), or the log was cleared or had dropped it. Run it again (these are
+ * all GET searches and reads) so it can be shown; the log entry then appears and replaces this.
+ */
+function MissingRequest({ request }: { request: string }) {
+  const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string }>({ kind: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    fetchAllPages(request).catch((e) => !cancelled && setState({ kind: "error", message: errorMessage(e) }));
+    return () => {
+      cancelled = true;
+    };
+  }, [request]);
+  return (
+    <div className="req small muted">
+      <code>{displayUrl(proxyUrl(request))}</code>
+      {state.kind === "loading" ? (
+        <p>
+          <span className="spinner" aria-hidden />
+          This request ran before the inspector was switched on (or the log was cleared), so it wasn’t recorded.
+          Sending it again…
+        </p>
+      ) : (
+        <div className="req-error">Sending it again failed: {state.message}</div>
+      )}
     </div>
   );
 }

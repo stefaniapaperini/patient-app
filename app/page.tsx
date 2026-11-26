@@ -8,7 +8,7 @@ import { Empty, ErrorBanner, Loading } from "@/components/ui";
 import { formatDate, formatGender, formatName } from "@/lib/fhir/format";
 import type { Patient } from "@/lib/fhir/types";
 import type { InspectTarget } from "@/lib/inspector/store";
-import { useInspector } from "@/lib/inspector/store";
+import { useInspectorEnabled } from "@/lib/inspector/store";
 import { usePatientSearch } from "@/lib/usePatientSearch";
 
 export default function PatientListPage() {
@@ -19,7 +19,7 @@ export default function PatientListPage() {
   const [notice, setNotice] = useState<string>();
   const { patients, total, hasMore, loading, loadingMore, error, moreError, loadMore, reload, requestUrl } =
     usePatientSearch(term);
-  const { enabled: inspecting } = useInspector();
+  const inspecting = useInspectorEnabled();
   const rowTarget = (p: Patient) => (): InspectTarget => ({
     title: `Patient row: ${formatName(p)}`,
     description:

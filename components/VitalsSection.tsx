@@ -19,7 +19,7 @@ import {
   type VitalDef,
   type VitalReading,
 } from "@/lib/fhir/vitals";
-import { useInspector, type InspectTarget } from "@/lib/inspector/store";
+import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 type View = "chart" | "table";
@@ -51,7 +51,7 @@ function observationsFor(readings: VitalReading[], observations: Map<string, Obs
 export function VitalsSection({ patientId }: { patientId: string }) {
   const [view, setView] = useState<View>("chart");
   const query = vitalsQuery(patientId);
-  const { enabled } = useInspector();
+  const enabled = useInspectorEnabled();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
       const { entries, truncated } = await fetchAllPages<Observation>(query, { signal });

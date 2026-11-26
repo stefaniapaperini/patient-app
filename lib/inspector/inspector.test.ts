@@ -1,7 +1,11 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { explainRequest, splitUrl, toCurl } from "./explain";
 import { fieldDoc, normalizePath } from "./glossary";
-import { entriesFor, type LogEntry } from "./store";
+import { entriesFor, getInspectorState, recordRequest, setEnabled, type LogEntry } from "./store";
 import { isHighlighted } from "../../components/inspector/JsonTree";
 
 describe("explainRequest", () => {
@@ -31,9 +35,24 @@ describe("explainRequest", () => {
 describe("toCurl", () => {
   it("uses the .env variables, never a real token", () => {
     const c = toCurl("GET", "/api/fhir/Patient?name=a");
-    expect(c).toContain('curl -X GET "$FHIR_BASE_URL/Patient?name=a"');
+    expect(c).toContain(`curl -X GET "$FHIR_BASE_URL"'/Patient?name=a'`);
     expect(c).toContain('Authorization: Bearer $FHIR_TOKEN');
-    expect(toCurl("GET", "/api/fhir?_getpages=x")).toContain('"$FHIR_BASE_URL?_getpages=x"');
+    expect(toCurl("GET", "/api/fhir?_getpages=x")).toContain(`"$FHIR_BASE_URL"'?_getpages=x'`);
+  });
+  it("never lets the URL or body run shell code (checked in a real bash)", () => {
+    const marker = join(tmpdir(), `curl-inject-${process.pid}-${Date.now()}`);
+    const evil = `$(touch ${marker})\`touch ${marker}\`"x'y\\$HOME`;
+    const cmd = toCurl("POST", `/api/fhir/Patient?name=${evil}`, { note: evil });
+    // A fake curl prints each argument on its own line instead of sending anything.
+    const out = execFileSync("bash", ["-c", `curl() { printf '%s\\n' "$@"; }\n${cmd}`], {
+      env: { ...process.env, FHIR_BASE_URL: "https://fhir.test/base", FHIR_TOKEN: "T0KEN", HOME: "/home/x" },
+      encoding: "utf8",
+    }).split("\n");
+    expect(existsSync(marker)).toBe(false); // nothing ran
+    expect(out).toContain(`https://fhir.test/base/Patient?name=${evil}`); // the URL arrives exactly as written
+    expect(out).toContain("Authorization: Bearer T0KEN"); // only the two .env variables are expanded
+    expect(out).toContain(JSON.stringify({ note: evil }));
+    expect(toCurl("GET; rm -rf ~", "/api/fhir/Patient")).toMatch(/^curl -X GETRMRF /);
   });
   it("adds a body, escaping single quotes for the shell", () => {
     const c = toCurl("POST", "/api/fhir/Patient", { resourceType: "Patient", name: [{ family: "O'Brien" }] });
@@ -61,6 +80,11 @@ describe("highlighting and field docs", () => {
     expect(fieldDoc("Observation", "component[0].valueQuantity.value")).toBe("The number.");
     expect(fieldDoc("Observation", "code.coding[0].system")).toMatch(/code system/);
     expect(fieldDoc("Patient", "somethingUnknown")).toBeUndefined();
+    // Nested fields don't borrow the top-level Patient.name / Patient.gender text.
+    expect(fieldDoc("Patient", "name")).toMatch(/patient’s names/);
+    expect(fieldDoc("Patient", "contact[0].name")).toBeUndefined();
+    expect(fieldDoc("Patient", "contact[0].gender")).toBeUndefined();
+    expect(fieldDoc("Patient", "contact[0].name.family")).toBe("Family (last) name.");
   });
 });
 
@@ -77,5 +101,19 @@ describe("request log", () => {
     expect(entriesFor(log, "/api/fhir/Observation?a").map((x) => x.id)).toEqual([4, 5]);
     expect(entriesFor(log, "/api/fhir/Patient/1").map((x) => x.id)).toEqual([3]);
     expect(entriesFor(log, "/api/fhir/Condition")).toEqual([]);
+  });
+});
+
+describe("logging only while the inspector is on", () => {
+  const logLength = () => getInspectorState().log.length;
+  it("records nothing while off, and switching off clears the log", () => {
+    setEnabled(false);
+    recordRequest({ method: "GET", url: "/api/fhir/Patient" })({ status: 200 });
+    expect(logLength()).toBe(0);
+    setEnabled(true);
+    recordRequest({ method: "GET", url: "/api/fhir/Patient" })({ status: 200 });
+    expect(logLength()).toBe(1);
+    setEnabled(false);
+    expect(logLength()).toBe(0);
   });
 });
