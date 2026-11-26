@@ -4,6 +4,9 @@ A Next.js app that lists, searches, creates and edits patients on a FHIR R4 serv
 patient's vital signs, conditions and medications. All data is read from and written to the FHIR
 server; nothing is stored locally.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the system structure, request flows, security model,
+and extension guidance.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in both values (no quotes):
