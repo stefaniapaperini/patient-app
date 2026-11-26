@@ -46,10 +46,12 @@ export function readConfig(): FhirConfig {
 
 /**
  * Validates the proxied path and returns the upstream URL, or null if the path is not allowed.
- * The empty path is only allowed for HAPI paging links (?_getpages=...).
+ * The empty path is only allowed for reading HAPI paging links (GET ?_getpages=...): a POST or
+ * PUT to the server base would run a transaction/batch Bundle and bypass ALLOWED_RESOURCES.
  */
-export function buildUpstreamUrl(base: URL, segments: string[], search: string): URL | null {
+export function buildUpstreamUrl(method: string, base: URL, segments: string[], search: string): URL | null {
   if (segments.length === 0) {
+    if (method.toUpperCase() !== "GET") return null;
     if (!new URLSearchParams(search).has("_getpages")) return null;
   } else {
     if (!ALLOWED_RESOURCES.has(segments[0])) return null;

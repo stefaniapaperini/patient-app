@@ -184,16 +184,23 @@ describe("medications", () => {
 describe("proxy", () => {
   const base = new URL("https://fhir.example.com/fhir/TENANT");
   it("builds upstream URLs only for allowed resources", () => {
-    expect(buildUpstreamUrl(base, ["Patient"], "?name:contains=smi")?.toString()).toBe(
+    expect(buildUpstreamUrl("GET", base, ["Patient"], "?name:contains=smi")?.toString()).toBe(
       "https://fhir.example.com/fhir/TENANT/Patient?name:contains=smi",
     );
-    expect(buildUpstreamUrl(base, ["Patient", "123"], "")?.toString()).toBe("https://fhir.example.com/fhir/TENANT/Patient/123");
-    expect(buildUpstreamUrl(base, ["Practitioner"], "")).toBeNull();
-    expect(buildUpstreamUrl(base, ["Patient", ".."], "")).toBeNull();
-    expect(buildUpstreamUrl(base, [], "")).toBeNull();
-    expect(buildUpstreamUrl(base, [], "?_getpages=abc&_getpagesoffset=50")?.toString()).toBe(
+    expect(buildUpstreamUrl("GET", base, ["Patient", "123"], "")?.toString()).toBe("https://fhir.example.com/fhir/TENANT/Patient/123");
+    expect(buildUpstreamUrl("GET", base, ["Practitioner"], "")).toBeNull();
+    expect(buildUpstreamUrl("GET", base, ["Patient", ".."], "")).toBeNull();
+    expect(buildUpstreamUrl("GET", base, [], "")).toBeNull();
+    expect(buildUpstreamUrl("GET", base, [], "?_getpages=abc&_getpagesoffset=50")?.toString()).toBe(
       "https://fhir.example.com/fhir/TENANT?_getpages=abc&_getpagesoffset=50",
     );
+  });
+  it("only allows reading paging links at the server base, never writing there", () => {
+    // A POST/PUT to the base URL would run a transaction Bundle and bypass the resource allowlist.
+    for (const m of ["POST", "PUT", "post", "DELETE", "PATCH"]) {
+      expect(buildUpstreamUrl(m, base, [], "?_getpages=abc")).toBeNull();
+    }
+    expect(buildUpstreamUrl("POST", base, ["Patient"], "")?.toString()).toBe("https://fhir.example.com/fhir/TENANT/Patient");
   });
   it("rewrites paging links (http or https) to the proxy", () => {
     expect(toProxyUrl("http://fhir.example.com/fhir/TENANT?_getpages=x", base)).toBe("/api/fhir?_getpages=x");

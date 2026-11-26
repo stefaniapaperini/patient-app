@@ -36,7 +36,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
   }
 
   const { path = [] } = await ctx.params;
-  const upstream = buildUpstreamUrl(config.baseUrl, path, req.nextUrl.search);
+  const upstream = buildUpstreamUrl(req.method, config.baseUrl, path, req.nextUrl.search);
   if (!upstream) {
     return errorResponse(403, `The proxy does not allow access to "/${path.join("/")}".`, "forbidden");
   }
