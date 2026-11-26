@@ -81,8 +81,11 @@ function VitalsCharts({ readings }: { readings: VitalReading[] }) {
 }
 
 function VitalChart({ def, readings }: { def: VitalDef; readings: VitalReading[] }) {
-  const rows = useMemo(() => chartRows(readings, def.key), [readings, def.key]);
   const unit = unitFor(readings, def.key);
+  const rows = useMemo(() => chartRows(readings, def.key, unit), [readings, def.key, unit]);
+  // Readings in a unit that can't be converted are left off the chart rather than drawn on the
+  // wrong scale; the table still lists them.
+  const otherUnits = readings.filter((r) => r.vital === def.key && r.unit !== unit).length;
   const multi = def.series.length > 1;
   const last = rows[rows.length - 1];
 
@@ -116,6 +119,11 @@ function VitalChart({ def, readings }: { def: VitalDef; readings: VitalReading[]
             </span>
           ))}
         </div>
+      )}
+      {otherUnits > 0 && (
+        <p className="muted small">
+          {otherUnits} reading{otherUnits === 1 ? " is" : "s are"} in a different unit and shown in the table only.
+        </p>
       )}
       {rows.length === 0 ? (
         <div className="chart-empty">No readings</div>
@@ -192,7 +200,9 @@ function VitalsTable({ readings }: { readings: VitalReading[] }) {
     for (const r of readings) {
       if (filter !== "all" && r.vital !== filter) continue;
       if (r.vital === "bp") {
-        const k = `${r.observationId ?? ""}|${r.time}`;
+        // Group by time only: BP may be one panel Observation with two components, or separate
+        // systolic and diastolic Observations (different ids) taken at the same moment.
+        const k = String(r.time);
         const e = bp.get(k) ?? { time: r.time, date: r.date, unit: r.unit };
         if (r.series === "systolic") e.sys = r.value;
         else e.dia = r.value;

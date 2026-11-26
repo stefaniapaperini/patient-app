@@ -45,18 +45,25 @@ export function readConfig(): FhirConfig {
 }
 
 /**
- * Validates the proxied path and returns the upstream URL, or null if the path is not allowed.
- * The empty path is only allowed for reading HAPI paging links (GET ?_getpages=...): a POST or
- * PUT to the server base would run a transaction/batch Bundle and bypass ALLOWED_RESOURCES.
+ * Validates the proxied path and returns the upstream URL, or null if the request is not allowed.
+ * - Reads (GET) may reach any resource type in ALLOWED_RESOURCES.
+ * - Writes are limited to what the app does: POST /Patient (create) and PUT /Patient/{id} (update).
+ *   Without this, the server's token could be used to write Observations, Conditions, etc.
+ * - The empty path is only allowed for reading HAPI paging links (GET ?_getpages=...): a POST or
+ *   PUT to the server base would run a transaction/batch Bundle and bypass ALLOWED_RESOURCES.
  */
 export function buildUpstreamUrl(method: string, base: URL, segments: string[], search: string): URL | null {
+  const m = method.toUpperCase();
   if (segments.length === 0) {
-    if (method.toUpperCase() !== "GET") return null;
+    if (m !== "GET") return null;
     if (!new URLSearchParams(search).has("_getpages")) return null;
   } else {
     if (!ALLOWED_RESOURCES.has(segments[0])) return null;
     if (segments.length > 4) return null;
     if (!segments.every((s) => SEGMENT.test(s) && s !== "." && s !== "..")) return null;
+    if (m === "POST" && !(segments[0] === "Patient" && segments.length === 1)) return null;
+    if (m === "PUT" && !(segments[0] === "Patient" && segments.length === 2 && !segments[1].startsWith("_"))) return null;
+    if (m !== "GET" && m !== "POST" && m !== "PUT") return null;
   }
   const url = new URL(base.toString());
   url.pathname = [base.pathname.replace(/\/+$/, ""), ...segments.map(encodeURIComponent)].join("/");
@@ -65,9 +72,13 @@ export function buildUpstreamUrl(method: string, base: URL, segments: string[], 
 }
 
 /**
- * Rewrites an absolute URL that points at the FHIR server (either http or https, since
- * servers behind TLS terminators often report http) into a proxy-relative URL.
- * URLs that point anywhere else are returned unchanged.
+ * Rewrites an absolute URL that points at the FHIR server into a proxy-relative URL.
+ * The host is not compared: servers behind reverse proxies or TLS terminators often report an
+ * internal hostname, port or scheme (e.g. http://hapi:8080/fhir). That is safe because the proxy
+ * only ever sends requests to FHIR_BASE_URL, whatever host a link names.
+ * - A path under the base path keeps its remainder: .../fhir/T/Patient?page=2 -> /api/fhir/Patient?page=2
+ * - A HAPI paging link (?_getpages=) under any path becomes /api/fhir?_getpages=...
+ * Anything else (another path, not a URL) is returned unchanged.
  */
 export function toProxyUrl(href: string, base: URL, proxyPrefix = "/api/fhir"): string {
   let u: URL;
@@ -76,10 +87,13 @@ export function toProxyUrl(href: string, base: URL, proxyPrefix = "/api/fhir"): 
   } catch {
     return href;
   }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return href;
   const basePath = base.pathname.replace(/\/+$/, "");
-  if (u.host !== base.host) return href;
-  if (u.pathname !== basePath && !u.pathname.startsWith(basePath + "/")) return href;
-  return proxyPrefix + u.pathname.slice(basePath.length) + u.search;
+  if (u.pathname === basePath || u.pathname.startsWith(basePath + "/")) {
+    return proxyPrefix + u.pathname.slice(basePath.length) + u.search;
+  }
+  if (u.searchParams.has("_getpages")) return proxyPrefix + u.search;
+  return href;
 }
 
 /** Rewrites Bundle.link[].url so the browser can follow paging links through the proxy. */

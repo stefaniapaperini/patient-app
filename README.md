@@ -38,7 +38,8 @@ docker run -p 8080:8080 --env-file .env patient-app
 
 - **FHIR proxy** – `app/api/fhir/[[...path]]/route.ts`. The browser calls `/api/fhir/<path>?<query>`;
   the proxy forwards it to `${FHIR_BASE_URL}/<path>?<query>` with `Authorization: Bearer …`.
-  It only allows Patient, Observation, Condition, MedicationRequest and Medication, rewrites
+  It only allows reading Patient, Observation, Condition, MedicationRequest and Medication, and
+  only two writes: `POST /Patient` and `PUT /Patient/{id}` (anything else gets 403). It rewrites
   Bundle paging links so they go back through the proxy, and turns network failures, timeouts
   and auth errors into FHIR `OperationOutcome` messages.
 - **Patient list** (`/`) – loads 50 patients per page sorted by family name and loads more on scroll,

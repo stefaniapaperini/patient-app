@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { Modal } from "./ui";
-import { errorMessage, fhirFetch } from "@/lib/fhir/client";
+import { errorMessage, fhirFetch, fhirRequest } from "@/lib/fhir/client";
 import {
   buildNewPatient,
   buildUpdatedPatient,
   EMPTY_FORM,
   GENDERS,
+  isPartialDate,
   patientToForm,
   todayIso,
   validatePatient,
@@ -36,6 +37,7 @@ export function PatientFormModal({
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
+  const partialBirthDate = isPartialDate(initial.birthDate);
 
   const set = (k: keyof PatientFormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const next = { ...values, [k]: e.target.value };
@@ -64,17 +66,21 @@ export function PatientFormModal({
     }
     setSaving(true);
     try {
-      let saved: Patient;
+      let resource: Patient;
+      let res: { body: Patient | undefined; location: string | undefined };
       if (isEdit) {
         const version = patient!.meta?.versionId;
-        saved = await fhirFetch<Patient>(`Patient/${encodeURIComponent(patient!.id!)}`, {
+        resource = { ...buildUpdatedPatient(patient!, values), id: patient!.id };
+        res = await fhirRequest<Patient>(`Patient/${encodeURIComponent(patient!.id!)}`, {
           method: "PUT",
-          json: { ...buildUpdatedPatient(patient!, values), id: patient!.id },
+          json: resource,
           headers: version ? { "If-Match": `W/"${version}"` } : undefined,
         });
       } else {
-        saved = await fhirFetch<Patient>("Patient", { method: "POST", json: buildNewPatient(values) });
+        resource = buildNewPatient(values);
+        res = await fhirRequest<Patient>("Patient", { method: "POST", json: resource });
       }
+      const saved = await savedPatient(res, resource, isEdit ? patient!.id : undefined);
       onSaved(saved);
     } catch (err) {
       setSaveError(errorMessage(err));
@@ -148,8 +154,15 @@ export function PatientFormModal({
               <label htmlFor="pf-birthDate">
                 Date of birth<span className="req">*</span>
               </label>
-              <input className="input" type="date" min="1900-01-01" max={todayIso()} {...fieldProps("birthDate")} />
-              {err("birthDate")}
+              {partialBirthDate ? (
+                // A date picker can't show "1980" or "1980-04" (it would look empty), so a stored
+                // partial date is edited as text and kept unless the user changes it.
+                <input className="input" type="text" inputMode="numeric" placeholder="YYYY-MM-DD" {...fieldProps("birthDate")} />
+              ) : (
+                <input className="input" type="date" min="1900-01-01" max={todayIso()} {...fieldProps("birthDate")} />
+              )}
+              {err("birthDate") ??
+                (partialBirthDate && <span className="hint">Only the year or month is recorded. Add the full date if you know it.</span>)}
             </div>
           </div>
           <div className="field">
@@ -173,4 +186,28 @@ export function PatientFormModal({
       </form>
     </Modal>
   );
+}
+
+/**
+ * The patient as stored. Servers normally echo it back (we send Prefer: return=representation),
+ * but some return an empty body: then re-read it from the Location header (or by id when
+ * editing), and as a last resort use what was submitted. The save itself already succeeded,
+ * so a failed re-read must not turn it into an error.
+ */
+async function savedPatient(
+  res: { body: Patient | undefined; location: string | undefined },
+  submitted: Patient,
+  editedId?: string,
+): Promise<Patient> {
+  if (res.body?.resourceType === "Patient") return res.body;
+  const readPath = res.location ?? (editedId ? `Patient/${encodeURIComponent(editedId)}` : undefined);
+  if (readPath) {
+    try {
+      const p = await fhirFetch<Patient>(readPath);
+      if (p?.resourceType === "Patient") return p;
+    } catch {
+      // fall through
+    }
+  }
+  return submitted;
 }

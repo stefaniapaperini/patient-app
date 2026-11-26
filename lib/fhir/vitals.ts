@@ -78,10 +78,43 @@ function effectiveDate(o: Observation): string | undefined {
   return o.effectiveDateTime ?? o.effectivePeriod?.start ?? o.effectiveInstant ?? o.issued;
 }
 
+/**
+ * Epoch ms for a FHIR date/dateTime. Date-only values ("2024-03-10", "2024-03", "2024") are read
+ * as *local* midnight: Date.parse would read them as UTC midnight, which shows as the previous day
+ * in time zones behind UTC. Values with a time part keep their own offset.
+ */
+export function fhirTime(date: string): number {
+  const m = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(date);
+  if (m) return new Date(Number(m[1]), Number(m[2] ?? 1) - 1, Number(m[3] ?? 1)).getTime();
+  return Date.parse(date);
+}
+
+/** Units converted to one unit per vital, so a chart never mixes kg and lb on one axis. */
+const CONVERSIONS: Record<string, { unit: string; convert: (v: number) => number }> = {
+  "[lb_av]": { unit: "kg", convert: (v) => v * 0.45359237 },
+  lb: { unit: "kg", convert: (v) => v * 0.45359237 },
+  lbs: { unit: "kg", convert: (v) => v * 0.45359237 },
+  g: { unit: "kg", convert: (v) => v / 1000 },
+  "[in_i]": { unit: "cm", convert: (v) => v * 2.54 },
+  in: { unit: "cm", convert: (v) => v * 2.54 },
+  m: { unit: "cm", convert: (v) => v * 100 },
+  "[degF]": { unit: "Cel", convert: (v) => ((v - 32) * 5) / 9 },
+  degF: { unit: "Cel", convert: (v) => ((v - 32) * 5) / 9 },
+  "°F": { unit: "Cel", convert: (v) => ((v - 32) * 5) / 9 },
+};
+
+/** Value and unit, converted to the metric unit when the reading is in pounds, inches or °F. */
+export function normalizeQuantity(q: Quantity): { value: number; unit: string } {
+  const unit = q.unit ?? q.code ?? "";
+  const conv = CONVERSIONS[q.code ?? ""] ?? CONVERSIONS[q.unit ?? ""];
+  return conv ? { value: conv.convert(q.value!), unit: conv.unit } : { value: q.value!, unit };
+}
+
 function push(out: VitalReading[], o: Observation, date: string, q: Quantity | undefined, code: string) {
   if (q?.value === undefined || q.value === null || !Number.isFinite(q.value)) return;
-  const time = Date.parse(date);
+  const time = fhirTime(date);
   if (isNaN(time)) return;
+  const { value, unit } = normalizeQuantity(q);
   for (const v of VITALS) {
     for (const s of v.series) {
       if (s.codes.includes(code)) {
@@ -91,8 +124,8 @@ function push(out: VitalReading[], o: Observation, date: string, q: Quantity | u
           label: v.series.length > 1 ? s.label : v.label,
           time,
           date,
-          value: q.value,
-          unit: q.unit ?? q.code ?? "",
+          value,
+          unit,
           observationId: o.id,
         });
       }
@@ -118,11 +151,15 @@ export function extractReadings(observations: Observation[]): VitalReading[] {
   return out.sort((a, b) => a.time - b.time);
 }
 
-/** Chart rows for one vital: [{ time, systolic, diastolic }, ...] merged by timestamp. */
-export function chartRows(readings: VitalReading[], vitalKey: string): Record<string, number>[] {
+/**
+ * Chart rows for one vital: [{ time, systolic, diastolic }, ...] merged by timestamp.
+ * With `unit`, only readings in that unit are included (one y-axis, one unit).
+ */
+export function chartRows(readings: VitalReading[], vitalKey: string, unit?: string): Record<string, number>[] {
   const byTime = new Map<number, Record<string, number>>();
   for (const r of readings) {
     if (r.vital !== vitalKey) continue;
+    if (unit !== undefined && r.unit !== unit) continue;
     const row = byTime.get(r.time) ?? { time: r.time };
     row[r.series] = r.value;
     byTime.set(r.time, row);
@@ -130,6 +167,12 @@ export function chartRows(readings: VitalReading[], vitalKey: string): Record<st
   return [...byTime.values()].sort((a, b) => a.time - b.time);
 }
 
+/** The unit most readings of a vital use (after conversion); the chart is drawn in this unit. */
 export function unitFor(readings: VitalReading[], vitalKey: string): string {
-  return readings.find((r) => r.vital === vitalKey && r.unit)?.unit ?? "";
+  const counts = new Map<string, number>();
+  for (const r of readings) if (r.vital === vitalKey) counts.set(r.unit, (counts.get(r.unit) ?? 0) + 1);
+  let best = "";
+  let n = 0;
+  for (const [u, c] of counts) if (c > n || (c === n && !best && u)) [best, n] = [u, c];
+  return best;
 }

@@ -37,6 +37,9 @@ export function usePatientSearch(term: string) {
     setLoading(true);
     setError(undefined);
     setMoreError(undefined);
+    // A loadMore from the previous search may still be running; its result is ignored (runId
+    // changed) and it won't clear loadingMore itself, so clear it here or scrolling stays stuck.
+    setLoadingMore(false);
 
     const run = async () => {
       let bundle: Bundle<Patient>;

@@ -55,7 +55,9 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
     headers["Prefer"] = "return=representation";
   }
 
+  // The timeout covers the whole exchange: headers *and* reading the body, so both are in the try.
   let res: Response;
+  let text: string;
   try {
     res = await fetch(upstream, {
       method: req.method,
@@ -65,6 +67,7 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
       redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+    text = await res.text();
   } catch (e) {
     const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return timedOut
@@ -80,7 +83,6 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
   const location = res.headers.get("location") ?? res.headers.get("content-location");
   if (location) outHeaders.set("Location", toProxyUrl(location, config.baseUrl));
 
-  const text = await res.text();
   if (!text) return new Response(null, { status: res.status, headers: outHeaders });
 
   let json: unknown;

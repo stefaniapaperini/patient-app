@@ -8,10 +8,10 @@ import {
   formatName,
   isConditionActive,
 } from "./format";
-import { buildNewPatient, buildUpdatedPatient, patientToForm, validatePatient, type PatientFormValues } from "./patient";
-import { chartRows, extractReadings, vitalsQuery } from "./vitals";
+import { buildNewPatient, buildUpdatedPatient, isPartialDate, patientToForm, validatePatient, type PatientFormValues } from "./patient";
+import { chartRows, extractReadings, fhirTime, normalizeQuantity, unitFor, vitalsQuery } from "./vitals";
 import { includedMedications, medicationName, normalizeRef, unresolvedRefs } from "./medications";
-import { outcomeMessage } from "./client";
+import { outcomeMessage, proxyUrl } from "./client";
 import { buildUpstreamUrl, rewriteBundleLinks, toProxyUrl } from "../server/proxy";
 import type { Condition, MedicationRequest, Observation, Patient } from "./types";
 
@@ -29,6 +29,20 @@ describe("validatePatient", () => {
   it("rejects a birth date in the future", () => {
     expect(validatePatient({ ...valid, birthDate: "2026-11-27" }, NOW).birthDate).toMatch(/future/);
     expect(validatePatient({ ...valid, birthDate: "2026-11-26" }, NOW).birthDate).toBeUndefined();
+  });
+  it("accepts partial birth dates (year, or year and month) as FHIR allows", () => {
+    expect(validatePatient({ ...valid, birthDate: "1980" }, NOW).birthDate).toBeUndefined();
+    expect(validatePatient({ ...valid, birthDate: "1980-04" }, NOW).birthDate).toBeUndefined();
+    expect(validatePatient({ ...valid, birthDate: "1900" }, NOW).birthDate).toBeUndefined();
+    expect(validatePatient({ ...valid, birthDate: "2026" }, NOW).birthDate).toBeUndefined();
+    expect(validatePatient({ ...valid, birthDate: "2026-11" }, NOW).birthDate).toBeUndefined();
+    expect(validatePatient({ ...valid, birthDate: "2026-12" }, NOW).birthDate).toMatch(/future/);
+    expect(validatePatient({ ...valid, birthDate: "2027" }, NOW).birthDate).toMatch(/future/);
+    expect(validatePatient({ ...valid, birthDate: "1899" }, NOW).birthDate).toMatch(/1900/);
+    expect(validatePatient({ ...valid, birthDate: "1980-13" }, NOW).birthDate).toBeDefined();
+    expect(isPartialDate("1980")).toBe(true);
+    expect(isPartialDate("1980-04")).toBe(true);
+    expect(isPartialDate("1980-04-12")).toBe(false);
   });
   it("rejects impossible dates and bad formats", () => {
     expect(validatePatient({ ...valid, birthDate: "2023-02-30" }, NOW).birthDate).toBeDefined();
@@ -68,12 +82,38 @@ describe("Patient resources", () => {
       telecom: [{ system: "email", value: "a@b.c" }, { system: "phone", value: "111111" }],
     };
     const u = buildUpdatedPatient(original, { ...valid, phone: "222222" });
-    expect(u.meta).toBeUndefined();
+    expect(u.meta).toBeUndefined(); // only versionId, which is server-managed
     expect(u.identifier).toEqual([{ value: "MRN1" }]);
     expect(u.name![0]).toEqual({ use: "official", given: ["Mary", "Ann"], family: "O'Brien-Smith", prefix: ["Mrs."] });
     expect(u.name![1]).toEqual({ use: "maiden", family: "Maid" });
     expect(u.telecom).toEqual([{ system: "email", value: "a@b.c" }, { system: "phone", value: "222222" }]);
     expect(u.birthDate).toBe("1980-04-12");
+  });
+  it("keeps meta tags, security labels and profiles when updating", () => {
+    const original: Patient = {
+      resourceType: "Patient",
+      id: "p1",
+      meta: {
+        versionId: "3",
+        lastUpdated: "2024-01-01T00:00:00Z",
+        source: "#abc",
+        profile: ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"],
+        security: [{ system: "http://terminology.hl7.org/CodeSystem/v3-Confidentiality", code: "R" }],
+        tag: [{ system: "urn:example", code: "vip" }],
+      },
+      name: [{ given: ["A"], family: "B" }],
+    };
+    const u = buildUpdatedPatient(original, valid);
+    expect(u.meta).toEqual({
+      profile: original.meta!.profile,
+      security: original.meta!.security,
+      tag: original.meta!.tag,
+    });
+    expect(original.meta!.versionId).toBe("3"); // the original is not modified
+  });
+  it("keeps a partial birth date in the form instead of blanking it", () => {
+    expect(patientToForm({ resourceType: "Patient", birthDate: "1980" }).birthDate).toBe("1980");
+    expect(patientToForm({ resourceType: "Patient", birthDate: "1980-04" }).birthDate).toBe("1980-04");
   });
   it("removes the phone when cleared, and round-trips through the form", () => {
     const p = buildNewPatient(valid);
@@ -143,6 +183,34 @@ describe("vitals", () => {
     expect(rows).toHaveLength(2);
     expect(rows[1]).toMatchObject({ systolic: 120, diastolic: 80 });
   });
+  it("reads date-only values as local dates, not UTC midnight", () => {
+    const d = new Date(fhirTime("2024-03-10"));
+    expect([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()]).toEqual([2024, 2, 10, 0]);
+    expect(new Date(fhirTime("2024-03")).getDate()).toBe(1);
+    expect(fhirTime("2024-03-10T10:00:00Z")).toBe(Date.UTC(2024, 2, 10, 10));
+  });
+  it("converts lb, in and °F to kg, cm and Cel", () => {
+    expect(normalizeQuantity({ value: 100, unit: "lb", code: "[lb_av]" }).unit).toBe("kg");
+    expect(normalizeQuantity({ value: 100, unit: "lb", code: "[lb_av]" }).value).toBeCloseTo(45.359, 3);
+    expect(normalizeQuantity({ value: 10, unit: "in" })).toEqual({ value: 25.4, unit: "cm" });
+    expect(normalizeQuantity({ value: 212, code: "[degF]" })).toEqual({ value: 100, unit: "Cel" });
+    expect(normalizeQuantity({ value: 70, unit: "kg", code: "kg" })).toEqual({ value: 70, unit: "kg" });
+  });
+  it("charts one unit per vital", () => {
+    const w = (id: string, value: number, unit: string, code: string, date: string): Observation => ({
+      resourceType: "Observation", id, code: loinc("29463-7"), effectiveDateTime: date, valueQuantity: { value, unit, code },
+    });
+    const r = extractReadings([
+      w("a", 70, "kg", "kg", "2024-01-01T10:00:00Z"),
+      w("b", 160, "lb", "[lb_av]", "2024-02-01T10:00:00Z"),
+      w("c", 71, "kg", "kg", "2024-03-01T10:00:00Z"),
+      w("d", 11, "stone", "[stone_av]", "2024-04-01T10:00:00Z"),
+    ]);
+    expect(unitFor(r, "weight")).toBe("kg");
+    const rows = chartRows(r, "weight", "kg");
+    expect(rows).toHaveLength(3); // lb converted; the unconvertible "stone" reading is left off
+    expect(rows[1].value).toBeCloseTo(72.57, 2);
+  });
   it("queries the codes from the spec", () => {
     const q = decodeURIComponent(vitalsQuery("abc"));
     expect(q).toContain("subject=Patient/abc");
@@ -202,10 +270,34 @@ describe("proxy", () => {
     }
     expect(buildUpstreamUrl("POST", base, ["Patient"], "")?.toString()).toBe("https://fhir.example.com/fhir/TENANT/Patient");
   });
+  it("only allows the writes the app makes: POST /Patient and PUT /Patient/{id}", () => {
+    expect(buildUpstreamUrl("PUT", base, ["Patient", "123"], "")?.toString()).toBe("https://fhir.example.com/fhir/TENANT/Patient/123");
+    expect(buildUpstreamUrl("POST", base, ["Observation"], "")).toBeNull();
+    expect(buildUpstreamUrl("PUT", base, ["Condition", "1"], "")).toBeNull();
+    expect(buildUpstreamUrl("POST", base, ["Patient", "123"], "")).toBeNull();
+    expect(buildUpstreamUrl("POST", base, ["Patient", "_search"], "")).toBeNull();
+    expect(buildUpstreamUrl("PUT", base, ["Patient"], "?name=x")).toBeNull(); // conditional update
+    expect(buildUpstreamUrl("PUT", base, ["Patient", "_history"], "")).toBeNull();
+    expect(buildUpstreamUrl("DELETE", base, ["Patient", "123"], "")).toBeNull();
+    expect(buildUpstreamUrl("GET", base, ["Observation"], "?subject=Patient/1")).not.toBeNull();
+  });
+  it("proxies paging links even when the server reports another host or path", () => {
+    expect(toProxyUrl("http://hapi:8080/fhir/TENANT/Patient?page=2", base)).toBe("/api/fhir/Patient?page=2");
+    expect(toProxyUrl("http://hapi:8080/fhir?_getpages=abc&_getpagesoffset=50", base)).toBe("/api/fhir?_getpages=abc&_getpagesoffset=50");
+    expect(toProxyUrl("https://other.example.com/elsewhere/Patient", base)).toBe("https://other.example.com/elsewhere/Patient");
+    expect(toProxyUrl("javascript:alert(1)", base)).toBe("javascript:alert(1)");
+  });
+  it("refuses to fetch absolute URLs from the browser", () => {
+    expect(() => proxyUrl("http://hapi:8080/fhir/Patient")).toThrow(/cannot follow/);
+    expect(proxyUrl("/api/fhir?_getpages=x")).toBe("/api/fhir?_getpages=x");
+    expect(proxyUrl("/api/fhir/Patient/1")).toBe("/api/fhir/Patient/1");
+    expect(proxyUrl("Patient?name=a")).toBe("/api/fhir/Patient?name=a");
+  });
   it("rewrites paging links (http or https) to the proxy", () => {
     expect(toProxyUrl("http://fhir.example.com/fhir/TENANT?_getpages=x", base)).toBe("/api/fhir?_getpages=x");
     expect(toProxyUrl("https://fhir.example.com/fhir/TENANT/Patient?page=2", base)).toBe("/api/fhir/Patient?page=2");
-    expect(toProxyUrl("https://evil.example.com/fhir/TENANT/Patient", base)).toBe("https://evil.example.com/fhir/TENANT/Patient");
+    // Same path, other host: proxied, which only ever reaches FHIR_BASE_URL.
+    expect(toProxyUrl("https://evil.example.com/fhir/TENANT/Patient", base)).toBe("/api/fhir/Patient");
     const b = rewriteBundleLinks({ resourceType: "Bundle", link: [{ relation: "next", url: "https://fhir.example.com/fhir/TENANT?_getpages=y" }] }, base) as { link: { url: string }[] };
     expect(b.link[0].url).toBe("/api/fhir?_getpages=y");
   });

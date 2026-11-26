@@ -23,6 +23,8 @@ export const EMPTY_FORM: PatientFormValues = { given: "", family: "", gender: ""
 
 const NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M}' .-]*$/u;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** FHIR `date` allows reduced precision: YYYY, YYYY-MM or YYYY-MM-DD. */
+const FHIR_DATE_RE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
 const PHONE_RE = /^\+?[0-9 ()./-]+$/;
 
 /** Today in the user's local time zone, as YYYY-MM-DD. */
@@ -33,11 +35,17 @@ export function todayIso(now = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+/** True for a real calendar date in YYYY, YYYY-MM or YYYY-MM-DD form. */
 function isRealDate(s: string): boolean {
-  if (!DATE_RE.test(s)) return false;
-  const [y, m, d] = s.split("-").map(Number);
+  if (!FHIR_DATE_RE.test(s)) return false;
+  const [y, m = 1, d = 1] = s.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/** A partial birth date as stored in FHIR (year, or year and month): the form keeps these as-is. */
+export function isPartialDate(s: string): boolean {
+  return FHIR_DATE_RE.test(s) && !DATE_RE.test(s);
 }
 
 function validateName(value: string, label: string): string | undefined {
@@ -61,9 +69,11 @@ export function validatePatient(v: PatientFormValues, now = new Date()): Patient
 
   const bd = v.birthDate.trim();
   if (!bd) errors.birthDate = "Date of birth is required.";
-  else if (!isRealDate(bd)) errors.birthDate = "Enter a valid date (YYYY-MM-DD).";
-  else if (bd > todayIso(now)) errors.birthDate = "Date of birth cannot be in the future.";
-  else if (bd < "1900-01-01") errors.birthDate = "Date of birth cannot be before 1900.";
+  else if (!isRealDate(bd)) errors.birthDate = "Enter a valid date (YYYY-MM-DD, or YYYY-MM / YYYY if the day is unknown).";
+  // Compare at the date's own precision, so "2026" is not "in the future" during 2026
+  // and "1900" is not "before 1900".
+  else if (bd > todayIso(now).slice(0, bd.length)) errors.birthDate = "Date of birth cannot be in the future.";
+  else if (bd < "1900-01-01".slice(0, bd.length)) errors.birthDate = "Date of birth cannot be before 1900.";
 
   const phone = v.phone.trim();
   if (phone) {
@@ -83,7 +93,8 @@ export function patientToForm(p: Patient): PatientFormValues {
     given: (n?.given ?? []).join(" "),
     family: n?.family ?? "",
     gender: g,
-    birthDate: p.birthDate && DATE_RE.test(p.birthDate) ? p.birthDate : p.birthDate ?? "",
+    // Partial dates ("1980", "1980-04") are kept as they are; the form shows them in a text field.
+    birthDate: p.birthDate ?? "",
     phone: p.telecom?.find((t) => t.system === "phone")?.value ?? "",
   };
 }
@@ -123,7 +134,13 @@ export function buildNewPatient(v: PatientFormValues): Patient {
 export function buildUpdatedPatient(original: Patient, v: PatientFormValues): Patient {
   const n = normalize(v);
   const updated: Patient = structuredClone(original);
-  delete updated.meta; // server-managed
+  // Only versionId, lastUpdated and source in meta are server-managed. Tags, security labels and
+  // profiles are client data and must survive an edit.
+  if (updated.meta) {
+    const { versionId: _v, lastUpdated: _l, source: _s, ...keep } = updated.meta;
+    if (Object.keys(keep).length) updated.meta = keep;
+    else delete updated.meta;
+  }
 
   const names = [...(original.name ?? [])];
   const shown = primaryName(original);

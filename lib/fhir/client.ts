@@ -44,20 +44,33 @@ export function outcomeMessage(outcome: unknown, status: number, statusText = ""
   return `${generic[status] ?? "Request failed."} (HTTP ${status}${statusText ? ` ${statusText}` : ""})`;
 }
 
-/** Accepts "Patient?name=x", "/Patient/1" or an already-proxied "/api/fhir/..." URL. */
+/**
+ * Accepts "Patient?name=x", "/Patient/1" or an already-proxied "/api/fhir/..." URL.
+ * Absolute URLs are refused: the proxy rewrites the server's links, so one that is still absolute
+ * points somewhere the app must not call (and would otherwise become "/api/fhir/https://...").
+ */
 export function proxyUrl(path: string): string {
-  if (path.startsWith(PROXY_BASE)) return path;
+  if (path === PROXY_BASE || path.startsWith(PROXY_BASE + "/") || path.startsWith(PROXY_BASE + "?")) return path;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+    throw new FhirError(`The FHIR server returned a link the app cannot follow: ${path}`, 0);
+  }
   return `${PROXY_BASE}/${path.replace(/^\/+/, "")}`;
 }
 
-export async function fhirFetch<T = Resource>(
+/**
+ * Like fhirFetch, but also returns the response's Location header (set on create/update).
+ * `body` is undefined when the server sent an empty response (e.g. it ignored
+ * `Prefer: return=representation`).
+ */
+export async function fhirRequest<T = Resource>(
   path: string,
   init: RequestInit & { json?: unknown } = {},
-): Promise<T> {
+): Promise<{ body: T | undefined; location: string | undefined; status: number }> {
   const { json, headers, ...rest } = init;
+  const url = proxyUrl(path);
   let res: Response;
   try {
-    res = await fetch(proxyUrl(path), {
+    res = await fetch(url, {
       ...rest,
       headers: {
         Accept: "application/fhir+json",
@@ -67,7 +80,8 @@ export async function fhirFetch<T = Resource>(
       body: json !== undefined ? JSON.stringify(json) : rest.body,
       cache: "no-store",
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
     throw new FhirError("Network error: could not reach the app server. Is it running?", 0);
   }
   const text = await res.text();
@@ -80,7 +94,11 @@ export async function fhirFetch<T = Resource>(
   if (!res.ok) {
     throw new FhirError(outcomeMessage(body, res.status, res.statusText), res.status, body as OperationOutcome);
   }
-  return body as T;
+  return { body: body as T | undefined, location: res.headers.get("location") ?? undefined, status: res.status };
+}
+
+export async function fhirFetch<T = Resource>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  return (await fhirRequest<T>(path, init)).body as T;
 }
 
 export function nextLink(bundle: Bundle): string | undefined {

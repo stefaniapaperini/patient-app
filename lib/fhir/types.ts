@@ -48,6 +48,10 @@ export interface ContactPoint {
 export interface Meta {
   versionId?: string;
   lastUpdated?: string;
+  source?: string;
+  profile?: string[];
+  security?: Coding[];
+  tag?: Coding[];
 }
 
 export interface Resource {
