@@ -345,11 +345,17 @@ describe("proxy", () => {
     expect(get(["Patient", "1"], "?_format=xml")).toBeNull();
     expect(get(["Patient"], "?_format=ttl")).toBeNull();
     expect(get(["Patient"], "?_format=json")).not.toBeNull();
+    expect(get(["Patient"], "?_format=application/fhir+json")).not.toBeNull(); // raw "+", decoded as a space
+    expect(get(["Patient"], "?_format=application%2Ffhir%2Bjson")).not.toBeNull();
     // Compartment searches, reverse and forward chaining filter by other types' data.
     expect(get(["Patient", "1", "Encounter"], "?_summary=count")).toBeNull();
     expect(get(["Patient"], "?_has:Encounter:patient:reason-code=x")).toBeNull();
     expect(get(["Patient"], "?general-practitioner.name=Smith")).toBeNull();
     expect(get(["Patient"], "?_filter=name eq x")).toBeNull();
+    expect(get(["Patient"], "?_list=42")).toBeNull();
+    expect(get(["Patient"], "?_in=Group/7")).toBeNull();
+    expect(get(["Patient"], "?_sort=general-practitioner.family")).toBeNull();
+    expect(get(["Observation"], "?_sort=-date")).not.toBeNull();
     // What the app itself sends still works.
     expect(get(["Patient", "1", "_history", "2"], "")).not.toBeNull();
     expect(get(["MedicationRequest"], "?patient=1&_include=MedicationRequest:medication&_count=200")).not.toBeNull();

@@ -22,7 +22,7 @@ import type { Patient } from "@/lib/fhir/types";
  * Create: POST /Patient. Edit: PUT /Patient/{id} with If-Match on the version read.
  */
 export function PatientFormModal({
-  patient,
+  patient: opened,
   onClose,
   onSaved,
 }: {
@@ -30,6 +30,8 @@ export function PatientFormModal({
   onClose: () => void;
   onSaved: (saved: Patient) => void;
 }) {
+  /** The version the form is based on: the one it opened with, or a newer one after a conflict. */
+  const [patient, setPatient] = useState(opened);
   const isEdit = !!patient?.id;
   const initial = useMemo(() => (patient ? patientToForm(patient) : EMPTY_FORM), [patient]);
   const [values, setValues] = useState<PatientFormValues>(initial);
@@ -74,8 +76,13 @@ export function PatientFormModal({
         // someone changed a field this form edits, rather than overwrite it.
         const current = await fhirFetch<Patient>(`Patient/${encodeURIComponent(patient!.id!)}`);
         if (JSON.stringify(patientToForm(current)) !== JSON.stringify(patientToForm(patient!))) {
+          // Show their version so the user can redo the edit on top of it; nothing was saved.
+          setPatient(current);
+          setValues(patientToForm(current));
+          setErrors({});
+          setSubmitted(false);
           setSaveError(
-            "Someone else changed this patient’s name, gender, birth date or phone since you opened the form. Close it and open it again to see their changes.",
+            "Someone else changed this patient’s name, gender, birth date or phone since you opened the form. The form now shows their version: make your change again and save.",
           );
           setSaving(false);
           return;

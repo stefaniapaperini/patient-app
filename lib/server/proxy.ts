@@ -86,15 +86,19 @@ const JSON_FORMATS = new Set(["json", "application/json", "application/fhir+json
  *   response (it only reads JSON), so blocked resources could come back as text.
  * - `_has` (reverse chaining) and chained parameters (`subject.name`, `general-practitioner.name`):
  *   they filter allowed resources by fields of other resource types, so the results reveal data
- *   of types the allowlist blocks. `_filter` can express the same, so it is refused too.
+ *   of types the allowlist blocks. `_filter` can express the same, so it is refused too, and so
+ *   are `_list` and `_in` (membership in a List, Group or other blocked resource) and chained
+ *   `_sort` keys (`_sort=general-practitioner.family` orders by another type's data).
  */
 export function queryRefusal(search: string): boolean {
   const params = new URLSearchParams(search);
   for (const [name, value] of params) {
     const base = name.split(":")[0];
-    if (base === "_format" && !JSON_FORMATS.has(value.trim().toLowerCase())) return true;
-    if (base === "_has" || base === "_filter") return true;
+    // URLSearchParams reads a raw "+" as a space: "application/fhir+json" arrives as "application/fhir json".
+    if (base === "_format" && !JSON_FORMATS.has(value.trim().toLowerCase().replace(/ /g, "+"))) return true;
+    if (base === "_has" || base === "_filter" || base === "_list" || base === "_in") return true;
     if (name.includes(".")) return true;
+    if (base === "_sort" && value.includes(".")) return true;
   }
   return false;
 }
