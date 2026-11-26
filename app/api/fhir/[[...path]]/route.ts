@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ConfigError,
   buildUpstreamUrl,
+  writeRefusal,
   filterDisallowed,
   REFUSED,
   operationOutcome,
@@ -52,6 +53,10 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
 
   let body: string | undefined;
   if (req.method === "POST" || req.method === "PUT") {
+    // Behind a reverse proxy the browser's host arrives as X-Forwarded-Host.
+    const host = req.headers.get("x-forwarded-host")?.split(",")[0].trim() || req.headers.get("host");
+    const refusal = writeRefusal(req.headers, host);
+    if (refusal) return errorResponse(403, refusal, "forbidden");
     body = await req.text();
     headers["Content-Type"] = FHIR_JSON;
     headers["Prefer"] = "return=representation";

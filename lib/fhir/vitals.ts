@@ -152,20 +152,68 @@ export function extractReadings(observations: Observation[]): VitalReading[] {
   return out.sort((a, b) => a.time - b.time);
 }
 
+/** One measurement of a vital: e.g. one blood pressure (systolic + diastolic). */
+export interface Measurement {
+  time: number;
+  date: string;
+  unit: string;
+  /** series key -> value */
+  values: Record<string, number>;
+  observationIds: string[];
+}
+
 /**
- * Chart rows for one vital: [{ time, systolic, diastolic }, ...] merged by timestamp.
- * With `unit`, only readings in that unit are included (one y-axis, one unit).
+ * Groups one vital's readings into measurements without ever overwriting or mixing values:
+ * 1. Readings of the same Observation at the same time form one measurement (a BP panel's
+ *    systolic and diastolic components).
+ * 2. Separate single-series Observations at the same time and unit (a standalone systolic and a
+ *    standalone diastolic) are paired only when the pairing is unambiguous: each series occurs
+ *    once at that moment. Otherwise each stays its own measurement.
+ * Two measurements at the same time therefore stay two rows, not one row with the last value.
  */
-export function chartRows(readings: VitalReading[], vitalKey: string, unit?: string): Record<string, number>[] {
-  const byTime = new Map<number, Record<string, number>>();
+export function groupMeasurements(readings: VitalReading[], vitalKey: string, unit?: string): Measurement[] {
+  const groups: Measurement[] = [];
+  const byObs = new Map<string, Measurement>();
   for (const r of readings) {
     if (r.vital !== vitalKey) continue;
     if (unit !== undefined && r.unit !== unit) continue;
-    const row = byTime.get(r.time) ?? { time: r.time };
-    row[r.series] = r.value;
-    byTime.set(r.time, row);
+    const key = r.observationId !== undefined ? `${r.observationId}|${r.time}|${r.unit}` : undefined;
+    let g = key !== undefined ? byObs.get(key) : undefined;
+    if (!g || r.series in g.values) {
+      g = { time: r.time, date: r.date, unit: r.unit, values: {}, observationIds: r.observationId ? [r.observationId] : [] };
+      groups.push(g);
+      if (key !== undefined) byObs.set(key, g);
+    }
+    g.values[r.series] = r.value;
   }
-  return [...byTime.values()].sort((a, b) => a.time - b.time);
+
+  const singles = new Map<string, Measurement[]>();
+  for (const g of groups) {
+    if (Object.keys(g.values).length !== 1) continue;
+    const k = `${g.time}|${g.unit}`;
+    singles.set(k, [...(singles.get(k) ?? []), g]);
+  }
+  const merged = new Set<Measurement>();
+  for (const list of singles.values()) {
+    if (list.length < 2) continue;
+    const series = list.map((g) => Object.keys(g.values)[0]);
+    if (new Set(series).size !== series.length) continue; // ambiguous: leave them apart
+    const [first, ...rest] = list;
+    for (const g of rest) {
+      Object.assign(first.values, g.values);
+      first.observationIds.push(...g.observationIds);
+      merged.add(g);
+    }
+  }
+  return groups.filter((g) => !merged.has(g)).sort((a, b) => a.time - b.time);
+}
+
+/**
+ * Chart rows for one vital: [{ time, systolic, diastolic }, ...], one per measurement (see
+ * groupMeasurements). With `unit`, only readings in that unit are included (one y-axis, one unit).
+ */
+export function chartRows(readings: VitalReading[], vitalKey: string, unit?: string): Record<string, number>[] {
+  return groupMeasurements(readings, vitalKey, unit).map((m) => ({ time: m.time, ...m.values }));
 }
 
 /** The unit most readings of a vital use (after conversion); the chart is drawn in this unit. */

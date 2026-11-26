@@ -22,7 +22,8 @@ export function patientSearchUrl(term: string, contains: boolean): string {
 export function usePatientSearch(term: string) {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [total, setTotal] = useState<number>();
-  const [next, setNext] = useState<string>();
+  /** The next-page link, with the search run that produced it: never followed for another search. */
+  const [next, setNext] = useState<{ url: string; run: number }>();
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string>();
@@ -42,6 +43,8 @@ export function usePatientSearch(term: string) {
     // A loadMore from the previous search may still be running; its result is ignored (runId
     // changed) and it won't clear loadingMore itself, so clear it here or scrolling stays stuck.
     setLoadingMore(false);
+    // The previous search's next link must not be followed for this one (it would append its patients).
+    setNext(undefined);
     // The inspector must show the request actually tried for *this* search, also when it fails,
     // never the previous search's.
     setRequestUrl(undefined);
@@ -76,7 +79,8 @@ export function usePatientSearch(term: string) {
         setRequestUrl(url);
         setPatients((bundle.entry ?? []).map((e) => e.resource!).filter((r) => r?.resourceType === "Patient"));
         setTotal(bundle.total);
-        setNext(nextLink(bundle));
+        const link = nextLink(bundle);
+        setNext(link ? { url: link, run: id } : undefined);
       })
       .catch((e) => {
         if (id !== runId.current || ctrl.signal.aborted) return;
@@ -94,11 +98,12 @@ export function usePatientSearch(term: string) {
 
   const loadMore = useCallback(async () => {
     if (!next || loadingMore) return;
-    const id = runId.current;
+    const id = next.run;
+    if (id !== runId.current) return; // a link from an earlier search
     setLoadingMore(true);
     setMoreError(undefined);
     try {
-      const bundle = await fhirFetch<Bundle<Patient>>(next, { group: requestUrl ? proxyUrl(requestUrl) : undefined });
+      const bundle = await fhirFetch<Bundle<Patient>>(next.url, { group: requestUrl ? proxyUrl(requestUrl) : undefined });
       if (id !== runId.current) return;
       setPatients((prev) => {
         const seen = new Set(prev.map((p) => p.id));
@@ -107,7 +112,8 @@ export function usePatientSearch(term: string) {
           .filter((r) => r?.resourceType === "Patient" && !seen.has(r.id));
         return [...prev, ...add];
       });
-      setNext(nextLink(bundle));
+      const link = nextLink(bundle);
+      setNext(link ? { url: link, run: id } : undefined);
     } catch (e) {
       if (id === runId.current) setMoreError(errorMessage(e));
     } finally {

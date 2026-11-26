@@ -144,13 +144,26 @@ export function buildUpdatedPatient(original: Patient, v: PatientFormValues): Pa
 
   const names = [...(original.name ?? [])];
   const shown = primaryName(original);
-  const idx = shown ? names.indexOf(shown) : -1;
-  // `text` is dropped because it would no longer match given/family.
-  const { text: _text, ...rest } = shown ?? {};
-  const newName = { ...rest, given: n.given, family: n.family };
-  if (idx >= 0) names[idx] = newName;
-  else names.unshift({ use: "official", ...newName });
-  updated.name = names;
+  // The form shows given names joined by spaces, which loses where one name ends ("Mary Ann" as one
+  // given name, or two). So the stored name is only rebuilt when the user changed it; otherwise
+  // it is kept exactly as it is on the server.
+  // Given and family are compared separately, so editing one keeps the other exactly as stored.
+  const before = patientToForm(original);
+  const givenChanged = v.given.trim() !== before.given.trim();
+  const familyChanged = v.family.trim() !== before.family.trim();
+  if (givenChanged || familyChanged) {
+    const idx = shown ? names.indexOf(shown) : -1;
+    // `text` is dropped because it would no longer match given/family.
+    const { text: _text, ...rest } = shown ?? {};
+    const newName = {
+      ...rest,
+      given: givenChanged || !shown?.given ? n.given : shown.given,
+      family: familyChanged || shown?.family === undefined ? n.family : shown.family,
+    };
+    if (idx >= 0) names[idx] = newName;
+    else names.unshift({ use: "official", ...newName });
+    updated.name = names;
+  }
 
   // "generated" and "extensions" narratives are built entirely from the structured data, so they
   // would now describe the old values: drop them. "additional" contains text people wrote, which

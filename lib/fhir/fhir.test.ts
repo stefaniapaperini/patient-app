@@ -6,13 +6,15 @@ import {
   formatDate,
   formatFrequency,
   formatName,
+  formatDose,
   isConditionActive,
+  isEnteredInError,
 } from "./format";
 import { buildNewPatient, buildUpdatedPatient, isPartialDate, patientToForm, validatePatient, type PatientFormValues } from "./patient";
-import { chartRows, extractReadings, fhirTime, normalizeQuantity, unitFor, vitalsQuery } from "./vitals";
+import { chartRows, extractReadings, fhirTime, groupMeasurements, normalizeQuantity, unitFor, vitalsQuery } from "./vitals";
 import { includedMedications, medicationName, normalizeRef, serverBase, unresolvedRefs } from "./medications";
 import { outcomeMessage, proxyUrl } from "./client";
-import { buildUpstreamUrl, filterDisallowed, REFUSED, rewriteBundleLinks, toProxyUrl } from "../server/proxy";
+import { buildUpstreamUrl, filterDisallowed, REFUSED, rewriteBundleLinks, toProxyUrl, writeRefusal } from "../server/proxy";
 import type { Condition, MedicationRequest, Observation, Patient } from "./types";
 
 const NOW = new Date("2026-11-26T12:00:00");
@@ -89,6 +91,16 @@ describe("Patient resources", () => {
     expect(u.telecom).toEqual([{ system: "email", value: "a@b.c" }, { system: "phone", value: "222222" }]);
     expect(u.birthDate).toBe("1980-04-12");
   });
+  it("keeps stored given names when the name was not edited", () => {
+    const original = { resourceType: "Patient", id: "p1", name: [{ use: "official", given: ["Mary Ann"], family: "Smith", text: "Mary Ann Smith" }] } as Patient;
+    const u = buildUpdatedPatient(original, { given: "Mary Ann", family: "Smith", gender: "female", birthDate: "1980-04-12", phone: "123" });
+    expect(u.name).toEqual(original.name);
+    const renamed = buildUpdatedPatient(original, { given: "Mary Anne", family: "Smith", gender: "female", birthDate: "1980-04-12", phone: "" });
+    expect(renamed.name![0]).toEqual({ use: "official", given: ["Mary", "Anne"], family: "Smith" });
+    // Editing only the family name keeps the compound given name as one name.
+    const married = buildUpdatedPatient(original, { given: "Mary Ann", family: "Jones", gender: "female", birthDate: "1980-04-12", phone: "" });
+    expect(married.name![0]).toEqual({ use: "official", given: ["Mary Ann"], family: "Jones" });
+  });
   it("drops the narrative when updating, since it describes the old demographics", () => {
     const original: Patient = {
       resourceType: "Patient",
@@ -164,6 +176,10 @@ describe("formatting", () => {
     expect(conditionOnset(c)).toBe("3 Feb 2001");
     expect(isConditionActive(c)).toBe(true);
     expect(isConditionActive({ ...c, clinicalStatus: { coding: [{ code: "resolved" }] } })).toBe(false);
+    // A ruled-out diagnosis is never active, whatever its clinical status says.
+    expect(isConditionActive({ ...c, verificationStatus: { coding: [{ code: "refuted" }] } })).toBe(false);
+    expect(isConditionActive({ ...c, verificationStatus: { coding: [{ code: "provisional" }] } })).toBe(true);
+    expect(isEnteredInError({ ...c, verificationStatus: { coding: [{ system: "x", code: "y" }, { code: "entered-in-error" }] } })).toBe(true);
     expect(conditionOnset({ resourceType: "Condition", onsetAge: { value: 40, unit: "a" } })).toBe("Age 40 a");
   });
   it("describes frequencies", () => {
@@ -200,6 +216,35 @@ describe("vitals", () => {
     const rows = chartRows(extractReadings(obs), "bp");
     expect(rows).toHaveLength(2);
     expect(rows[1]).toMatchObject({ systolic: 120, diastolic: 80 });
+  });
+  it("never merges two measurements taken at the same time", () => {
+    const panel = (id: string, sys: number, dia?: number): Observation => ({
+      resourceType: "Observation", id, code: loinc("85354-9"), effectiveDateTime: "2024-03-10",
+      component: [
+        { code: loinc("8480-6"), valueQuantity: { value: sys, unit: "mm[Hg]" } },
+        ...(dia === undefined ? [] : [{ code: loinc("8462-4"), valueQuantity: { value: dia, unit: "mm[Hg]" } }]),
+      ],
+    });
+    const m = groupMeasurements(extractReadings([panel("a", 160, 100), panel("b", 120, 80), panel("c", 130)]), "bp");
+    expect(m.map((x) => x.values)).toEqual([
+      { systolic: 160, diastolic: 100 },
+      { systolic: 120, diastolic: 80 },
+      { systolic: 130 },
+    ]);
+  });
+  it("pairs standalone systolic and diastolic only when unambiguous", () => {
+    const one = (id: string, code: string, value: number): Observation => ({
+      resourceType: "Observation", id, code: loinc(code), effectiveDateTime: "2024-03-10T09:00:00Z", valueQuantity: { value, unit: "mm[Hg]" },
+    });
+    const paired = groupMeasurements(extractReadings([one("s", "8480-6", 120), one("d", "8462-4", 80)]), "bp");
+    expect(paired).toHaveLength(1);
+    expect(paired[0].values).toEqual({ systolic: 120, diastolic: 80 });
+    expect(paired[0].observationIds).toEqual(["s", "d"]);
+    const ambiguous = groupMeasurements(
+      extractReadings([one("s1", "8480-6", 160), one("s2", "8480-6", 120), one("d1", "8462-4", 100), one("d2", "8462-4", 80)]),
+      "bp",
+    );
+    expect(ambiguous).toHaveLength(4);
   });
   it("reads date-only values as local dates, not UTC midnight", () => {
     const d = new Date(fhirTime("2024-03-10"));
@@ -285,8 +330,29 @@ describe("medications", () => {
   });
 });
 
+describe("doses", () => {
+  it("shows the dose exactly as recorded", () => {
+    expect(formatDose({ doseAndRate: [{ doseQuantity: { value: 0.125, unit: "mg" } }] })).toBe("0.125 mg");
+    expect(formatDose({ doseAndRate: [{ doseQuantity: { value: 0.0625, unit: "mg" } }] })).toBe("0.0625 mg");
+  });
+});
+
 describe("proxy", () => {
   const base = new URL("https://fhir.example.com/fhir/TENANT");
+  it("refuses cross-site writes", () => {
+    const h = (o: Record<string, string>) => new Headers(o);
+    const json = { "content-type": "application/fhir+json" };
+    expect(writeRefusal(h({ ...json, "sec-fetch-site": "same-origin" }), "app.local")).toBeNull();
+    expect(writeRefusal(h({ ...json, "sec-fetch-site": "cross-site" }), "app.local")).not.toBeNull();
+    expect(writeRefusal(h({ ...json, "sec-fetch-site": "same-site" }), "app.local")).not.toBeNull();
+    // Older browsers: Origin only.
+    expect(writeRefusal(h({ ...json, origin: "http://app.local" }), "app.local")).toBeNull();
+    expect(writeRefusal(h({ ...json, origin: "https://evil.example" }), "app.local")).not.toBeNull();
+    // A simple (no-preflight) cross-site body type is refused even without Fetch metadata.
+    expect(writeRefusal(h({ "content-type": "text/plain" }), "app.local")).not.toBeNull();
+    // curl and scripts send neither header.
+    expect(writeRefusal(h({ "content-type": "application/json; charset=utf-8" }), "app.local")).toBeNull();
+  });
   it("removes resource types outside the allowlist from responses", () => {
     // _revinclude=*, _include of a Practitioner, or Patient/1/Encounter return other types.
     const bundle = {

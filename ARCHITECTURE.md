@@ -113,7 +113,7 @@ Inspector mode is off after every page load and is never written to storage. Tur
 
 ## Security model
 
-The proxy is the security boundary. The browser never receives the token or the upstream URL, cannot reach arbitrary URLs, can read only allowlisted resource types (enforced on both the path and the response), and can write only Patient create and update requests. No FHIR data or log contents are written to browser storage.
+The proxy is the security boundary. The browser never receives the token or the upstream URL, cannot reach arbitrary URLs, can read only allowlisted resource types (enforced on both the path and the response), and can write only Patient create and update requests. Writes are also refused unless they come from the app itself (`Sec-Fetch-Site`/`Origin`) with a JSON content type, so other websites open in the user's browser cannot use the proxy's token (CSRF). No FHIR data or log contents are written to browser storage.
 
 The app has no user authentication or authorization of its own. The deployment environment must protect access to the UI and to the FHIR server.
 

@@ -137,6 +137,36 @@ function allowedType(t: unknown): boolean {
 }
 
 
+/**
+ * Why a write (POST/PUT) must be refused, or null if it may go ahead. The proxy adds the server's
+ * token, so without this any website open in a user's browser could create or overwrite Patients
+ * through it (cross-site request forgery).
+ * - Browsers send Sec-Fetch-Site; only "same-origin" (the app itself) is accepted.
+ * - Older browsers send Origin instead; it must name this host.
+ * - The body must be declared as JSON. A cross-site page can only send text/plain, form or
+ *   multipart bodies without a CORS preflight, and the proxy answers no preflight.
+ * Requests without these headers (curl, scripts) are not cross-site and are allowed.
+ */
+export function writeRefusal(headers: Headers, host: string | null): string | null {
+  const site = headers.get("sec-fetch-site");
+  if (site && site !== "same-origin") return "Writes are only accepted from this app.";
+  const origin = headers.get("origin");
+  if (!site && origin) {
+    let originHost: string | undefined;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      originHost = undefined;
+    }
+    if (!host || originHost?.toLowerCase() !== host.toLowerCase()) return "Writes are only accepted from this app.";
+  }
+  const type = (headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/fhir+json" && type !== "application/json") {
+    return "The request body must be sent as application/fhir+json.";
+  }
+  return null;
+}
+
 /** Builds a FHIR OperationOutcome so every proxy error has the same shape as server errors. */
 export function operationOutcome(diagnostics: string, code = "processing") {
   return {

@@ -12,6 +12,8 @@ import {
   conditionOnset,
   conditionOnsetKey,
   isConditionActive,
+  isEnteredInError,
+  verificationStatusCode,
 } from "@/lib/fhir/format";
 import type { Condition } from "@/lib/fhir/types";
 import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
@@ -27,9 +29,7 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
       const { entries } = await fetchAllPages<Condition>(query, { signal });
-      return matches<Condition>(entries, "Condition").filter(
-        (c) => c.verificationStatus?.coding?.[0]?.code !== "entered-in-error",
-      );
+      return matches<Condition>(entries, "Condition").filter((c) => !isEnteredInError(c));
     },
     [patientId],
   );
@@ -117,10 +117,10 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
                 const target = (): InspectTarget => ({
                   title: `Condition: ${codeText(c.code)}`,
                   description:
-                    "One Condition resource. The name and code come from Condition.code (SNOMED CT), the onset from onset[x], the status from clinicalStatus.",
+                    "One Condition resource. The name and code come from Condition.code (SNOMED CT), the onset from onset[x], the status from clinicalStatus and verificationStatus (a refuted diagnosis is never counted as active).",
                   requests: [query],
                   resources: [c],
-                  highlight: ["code", "onsetDateTime", "onsetPeriod", "onsetAge", "onsetString", "clinicalStatus"],
+                  highlight: ["code", "onsetDateTime", "onsetPeriod", "onsetAge", "onsetString", "clinicalStatus", "verificationStatus"],
                 });
                 return (
                 <tr key={c.id ?? i} {...inspectable(inspecting, target)}>
@@ -136,6 +136,11 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
                     <span className={`badge ${isConditionActive(c) ? "badge-active" : ""}`}>
                       {capitalize(clinicalStatusCode(c) || undefined)}
                     </span>
+                    {/* Anything but a confirmed diagnosis is said so: a provisional or refuted one must not read as confirmed. */}
+                    {(() => {
+                      const v = verificationStatusCode(c);
+                      return v && v !== "confirmed" ? <span className="badge" style={{ marginLeft: 4 }}>{capitalize(v)}</span> : null;
+                    })()}
                   </td>
                 </tr>
                 );

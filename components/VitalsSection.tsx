@@ -11,6 +11,7 @@ import type { Observation } from "@/lib/fhir/types";
 import {
   BP_PANELS,
   chartRows,
+  groupMeasurements,
   extractReadings,
   SERIES_COLORS,
   unitFor,
@@ -257,44 +258,39 @@ function VitalChart({ def, readings, ctx }: { def: VitalDef; readings: VitalRead
 function VitalsTable({ readings, ctx }: { readings: VitalReading[]; ctx: InspectCtx }) {
   const [filter, setFilter] = useState("all");
   const rows = useMemo(() => {
-    // Blood pressure: one row per reading with "systolic/diastolic".
     const out: { key: string; time: number; date: string; vital: string; value: string; unit: string; ids: string[]; bp: boolean }[] = [];
-    const bp = new Map<string, { time: number; date: string; sys?: number; dia?: number; unit: string; ids: Set<string> }>();
     for (const r of readings) {
       if (filter !== "all" && r.vital !== filter) continue;
-      if (r.vital === "bp") {
-        // Group by time only: BP may be one panel Observation with two components, or separate
-        // systolic and diastolic Observations (different ids) taken at the same moment.
-        const k = String(r.time);
-        const e = bp.get(k) ?? { time: r.time, date: r.date, unit: r.unit, ids: new Set<string>() };
-        if (r.observationId) e.ids.add(r.observationId);
-        if (r.series === "systolic") e.sys = r.value;
-        else e.dia = r.value;
-        bp.set(k, e);
-      } else {
-        const label = VITALS.find((v) => v.key === r.vital)?.label ?? r.label;
-        out.push({
-          key: `${r.observationId}|${r.vital}|${r.time}|${out.length}`,
-          time: r.time,
-          date: r.date,
-          vital: label,
-          value: fmt(r.value),
-          unit: r.unit,
-          ids: r.observationId ? [r.observationId] : [],
-          bp: false,
-        });
-      }
-    }
-    for (const [k, e] of bp) {
+      if (r.vital === "bp") continue; // added below, one row per measurement
+      const label = VITALS.find((v) => v.key === r.vital)?.label ?? r.label;
       out.push({
-        key: `bp|${k}`,
-        time: e.time,
-        date: e.date,
-        vital: "Blood pressure",
-        value: `${e.sys !== undefined ? fmt(e.sys) : "?"}/${e.dia !== undefined ? fmt(e.dia) : "?"}`,
-        unit: e.unit,
-        ids: [...e.ids],
-        bp: true,
+        key: `${r.observationId}|${r.vital}|${r.time}|${out.length}`,
+        time: r.time,
+        date: r.date,
+        vital: label,
+        value: fmt(r.value),
+        unit: r.unit,
+        ids: r.observationId ? [r.observationId] : [],
+        bp: false,
+      });
+    }
+    // Blood pressure: one row per measurement. A panel's components stay together, separate
+    // systolic/diastolic Observations are paired only when unambiguous, and two readings at the
+    // same moment stay two rows (never one row with the last value, or a mix of both).
+    if (filter === "all" || filter === "bp") {
+      groupMeasurements(readings, "bp").forEach((m, i) => {
+        const sys = m.values.systolic;
+        const dia = m.values.diastolic;
+        out.push({
+          key: `bp|${m.time}|${i}`,
+          time: m.time,
+          date: m.date,
+          vital: "Blood pressure",
+          value: `${sys !== undefined ? fmt(sys) : "?"}/${dia !== undefined ? fmt(dia) : "?"}`,
+          unit: m.unit,
+          ids: m.observationIds,
+          bp: true,
+        });
       });
     }
     return out.sort((a, b) => b.time - a.time || a.vital.localeCompare(b.vital));

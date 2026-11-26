@@ -87,7 +87,8 @@ export function codeLabel(cc?: CodeableConcept): string {
 
 export function formatQuantity(q?: Quantity): string {
   if (q?.value === undefined || q.value === null) return DASH;
-  const v = Number.isInteger(q.value) ? String(q.value) : String(Math.round(q.value * 100) / 100);
+  // Shown exactly as recorded: rounding would turn a 0.125 mg dose into a 0.13 mg one.
+  const v = String(q.value);
   const unit = q.unit ?? q.code;
   return unit ? `${v} ${unit}` : v;
 }
@@ -114,8 +115,21 @@ export function clinicalStatusCode(c: Condition): string {
 }
 
 /** FHIR treats recurrence and relapse as sub-types of "active". */
+/** Condition.verificationStatus code: confirmed, provisional, differential, unconfirmed, refuted, entered-in-error, or "". */
+export function verificationStatusCode(c: Condition): string {
+  return (
+    c.verificationStatus?.coding?.find((x) => x.code)?.code ?? c.verificationStatus?.text?.toLowerCase() ?? ""
+  );
+}
+
+/** True if any coding marks the Condition as recorded by mistake. */
+export function isEnteredInError(c: Condition): boolean {
+  return (c.verificationStatus?.coding ?? []).some((x) => x.code === "entered-in-error");
+}
+
+/** Active clinical status, and not ruled out: a refuted diagnosis is not an active condition. */
 export function isConditionActive(c: Condition): boolean {
-  return ["active", "recurrence", "relapse"].includes(clinicalStatusCode(c));
+  return ["active", "recurrence", "relapse"].includes(clinicalStatusCode(c)) && verificationStatusCode(c) !== "refuted";
 }
 
 export function capitalize(s?: string): string {
