@@ -45,7 +45,9 @@ export function usePatientSearch(term: string) {
     // The inspector must show the request actually tried for *this* search, also when it fails,
     // never the previous search's.
     setRequestUrl(undefined);
-    let tried = patientSearchUrl(term, contains.current);
+    // Whether *this* run used :contains: another run may switch the shared flag off meanwhile.
+    const usedContains = contains.current;
+    let tried = patientSearchUrl(term, usedContains);
 
     const run = async () => {
       let bundle: Bundle<Patient>;
@@ -54,7 +56,7 @@ export function usePatientSearch(term: string) {
         bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
       } catch (e) {
         // HAPI answers 400 for an unknown modifier, or 405 ("HAPI-1258") when :contains is disabled.
-        if (term.trim() && contains.current && e instanceof FhirError && (e.status === 400 || e.status === 405 || e.status === 501)) {
+        if (term.trim() && usedContains && e instanceof FhirError && (e.status === 400 || e.status === 405 || e.status === 501)) {
           // 405/501 or HAPI-1258 mean the modifier is unsupported: remember that at once, even if the
           // retry below is cancelled. A plain 400 may have another cause, so it only counts once the
           // search without :contains succeeds.

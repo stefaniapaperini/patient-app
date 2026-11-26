@@ -46,14 +46,16 @@ const EXAMPLES: { label: string; method: Method; url: string; body?: string }[] 
 ];
 
 /**
- * "[base]/Patient?x", "http://localhost:3000/api/fhir/Patient?x", "/api/fhir/Patient?x", "/Patient?x"
+ * "[base]/Patient?x", "<this app's origin>/api/fhir/Patient?x", "/api/fhir/Patient?x", "/Patient?x"
  * or "Patient?x" -> "Patient?x". A paging link "/api/fhir?_getpages=..." -> "?_getpages=...".
+ * Only this app's own origin is stripped: a URL on another host stays absolute and send() refuses it,
+ * so it is never quietly run against this server.
  */
 function cleanUrl(u: string): string {
-  return u
-    .trim()
-    .replace(/^\[base\]/, "")
-    .replace(/^https?:\/\/[^/?#]+(?=\/api\/fhir(?:[/?]|$))/i, "")
+  let s = u.trim().replace(/^\[base\]/, "");
+  const origin = typeof window === "undefined" ? undefined : window.location.origin;
+  if (origin && s.toLowerCase().startsWith(origin.toLowerCase() + "/")) s = s.slice(origin.length);
+  return s
     .replace(/^\/*api\/fhir(?=[/?]|$)/, "")
     .replace(/^\/+/, "");
 }
@@ -110,6 +112,10 @@ function Console() {
         setInputError(`The body is not valid JSON: ${(e as Error).message}`);
         return;
       }
+    }
+    if (!overrideUrl && /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+      setInputError("The console only sends requests through this app’s proxy. Enter a path such as Patient?_count=5.");
+      return;
     }
     let proxied: string;
     try {

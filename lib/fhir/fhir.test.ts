@@ -98,6 +98,10 @@ describe("Patient resources", () => {
     } as Patient;
     expect(buildUpdatedPatient(original, valid).text).toBeUndefined();
   });
+  it("drops an 'extensions' narrative, which is also generated", () => {
+    const original = { resourceType: "Patient", id: "p1", text: { status: "extensions", div: "<div>John</div>" } } as Patient;
+    expect(buildUpdatedPatient(original, valid).text).toBeUndefined();
+  });
   it("keeps a narrative people wrote when updating", () => {
     const text = { status: "additional", div: "<div>Interpreter required</div>" };
     const original = { resourceType: "Patient", id: "p1", text, name: [{ family: "Smith" }] } as Patient;
@@ -269,7 +273,9 @@ describe("medications", () => {
     expect(medicationName(other, known)).toBe("Other drug");
     expect(unresolvedRefs([other], new Map(), "https://x/fhir")).toEqual([]);
     expect(normalizeRef("https://x/fhir/Medication/m2/_history/1", "https://x/fhir/")).toBe("Medication/m2");
-    expect(normalizeRef("/Medication/m2")).toBe("Medication/m2");
+    // Root-relative: may be another server's Medication when the FHIR base has a path.
+    expect(normalizeRef("/Medication/m2")).toBe("/Medication/m2");
+    expect(unresolvedRefs([{ ...base, medicationReference: { reference: "/Medication/m2" } }], new Map(), "https://x/fhir")).toEqual([]);
   });
   it("finds the server base from entry.fullUrl", () => {
     expect(serverBase([{ fullUrl: "https://x/fhir/MedicationRequest/r1", resource: { resourceType: "MedicationRequest", id: "r1" } as never }])).toBe(
@@ -300,7 +306,7 @@ describe("proxy", () => {
     expect(filterDisallowed({ error: "gateway" })).toEqual({ error: "gateway" });
     expect(filterDisallowed(null)).toBeNull();
   });
-  it("removes contained resources of types outside the allowlist", () => {
+  it("keeps contained resources, which are part of the resource that holds them", () => {
     const req = {
       resourceType: "MedicationRequest",
       contained: [
@@ -308,12 +314,13 @@ describe("proxy", () => {
         { resourceType: "Medication", id: "m" },
       ],
     };
+    // Stripping them would delete them on the server when an edited Patient is PUT back.
     const single = filterDisallowed(structuredClone(req)) as typeof req;
-    expect(single.contained.map((c) => c.resourceType)).toEqual(["Medication"]);
+    expect(single.contained.map((c) => c.resourceType)).toEqual(["Practitioner", "Medication"]);
     const bundle = filterDisallowed({ resourceType: "Bundle", entry: [{ resource: structuredClone(req) }] }) as {
       entry: { resource: typeof req }[];
     };
-    expect(bundle.entry[0].resource.contained.map((c) => c.resourceType)).toEqual(["Medication"]);
+    expect(bundle.entry[0].resource.contained.map((c) => c.resourceType)).toEqual(["Practitioner", "Medication"]);
   });
   it("builds upstream URLs only for allowed resources", () => {
     expect(buildUpstreamUrl("GET", base, ["Patient"], "?name:contains=smi")?.toString()).toBe(
