@@ -2,10 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { Empty, ErrorBanner, Loading, Segmented } from "./ui";
+import { CodeChip } from "./inspector/CodeChip";
+import { InspectButton, inspectable } from "./inspector/Inspect";
 import { fetchAllPages, fhirFetch, matches } from "@/lib/fhir/client";
 import { capitalize, formatDate, formatDose, formatFrequency, formatRoute } from "@/lib/fhir/format";
-import { includedMedications, isMedicationActive, medicationName, unresolvedRefs } from "@/lib/fhir/medications";
+import { includedMedications, isMedicationActive, medicationName, normalizeRef, unresolvedRefs } from "@/lib/fhir/medications";
 import type { Medication, MedicationRequest } from "@/lib/fhir/types";
+import { useInspector, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 type StatusFilter = "active" | "all";
@@ -22,11 +25,12 @@ const CONCURRENCY = 6;
 
 export function MedicationsSection({ patientId }: { patientId: string }) {
   const [status, setStatus] = useState<StatusFilter>("active");
+  // _include asks the server to return referenced Medication resources in the same Bundle.
+  const query = `MedicationRequest?${new URLSearchParams({ patient: patientId, _include: "MedicationRequest:medication", _count: "200" })}`;
+  const { enabled: inspecting } = useInspector();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
-      // _include asks the server to return referenced Medication resources in the same Bundle.
-      const q = new URLSearchParams({ patient: patientId, _include: "MedicationRequest:medication", _count: "200" });
-      const { entries } = await fetchAllPages<MedicationRequest>(`MedicationRequest?${q}`, { signal });
+      const { entries } = await fetchAllPages<MedicationRequest>(query, { signal });
       const requests = matches<MedicationRequest>(entries, "MedicationRequest");
       const known = includedMedications(entries);
 
@@ -69,7 +73,19 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
   return (
     <section className="card" aria-labelledby="med-h">
       <div className="card-header">
-        <h2 id="med-h">Medications</h2>
+        <h2 id="med-h">
+          Medications
+          <InspectButton
+            enabled={inspecting}
+            label="the medications search"
+            target={() => ({
+              title: "Medications section",
+              description:
+                "A search for this patient’s MedicationRequests. _include adds the Medication resources they refer to, in the same Bundle (entries with search.mode “include”). Current / All filters on status in the browser.",
+              requests: [query],
+            })}
+          />
+        </h2>
         <Segmented<StatusFilter>
           label="Medication status"
           value={status}
@@ -109,9 +125,26 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ r, name, dosage }, i) => (
-                    <tr key={r.id ?? i}>
-                      <td className="wrap">{name}</td>
+                  {rows.map(({ r, name, dosage }, i) => {
+                    const ref = r.medicationReference?.reference;
+                    const med = ref && !ref.startsWith("#") ? data?.known.get(normalizeRef(ref)) : undefined;
+                    const coding = (r.medicationCodeableConcept ?? med?.code)?.coding?.find((c) => c.code);
+                    const target = (): InspectTarget => ({
+                      title: `Medication: ${name}`,
+                      description: med
+                        ? "The prescription (MedicationRequest) refers to a separate Medication resource through medicationReference, so the name comes from that Medication’s code."
+                        : "One MedicationRequest. The name comes from medicationCodeableConcept, the dose, frequency and route from dosageInstruction[0].",
+                      requests: [query],
+                      resources: med ? [r, med] : [r],
+                      highlight: ["medicationCodeableConcept", "medicationReference", "dosageInstruction", "status", "authoredOn", "code"],
+                    });
+                    return (
+                    <tr key={r.id ?? i} {...inspectable(inspecting, target)}>
+                      <td className="wrap">
+                        {name}
+                        {inspecting && <CodeChip {...coding} />}
+                        <InspectButton enabled={inspecting} target={target} label={name} />
+                      </td>
                       <td className="num">{formatDose(dosage)}</td>
                       <td>{formatFrequency(dosage)}</td>
                       <td>{formatRoute(dosage)}</td>
@@ -120,7 +153,8 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
                       </td>
                       <td className="num muted">{formatDate(r.authoredOn)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Empty, ErrorBanner, Loading, Segmented } from "./ui";
+import { InspectButton, inspectable } from "./inspector/Inspect";
 import { fetchAllPages, matches } from "@/lib/fhir/client";
 import {
   capitalize,
@@ -13,6 +14,7 @@ import {
   isConditionActive,
 } from "@/lib/fhir/format";
 import type { Condition } from "@/lib/fhir/types";
+import { useInspector, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 type StatusFilter = "active" | "inactive" | "all";
@@ -20,10 +22,11 @@ type StatusFilter = "active" | "inactive" | "all";
 export function ConditionsSection({ patientId }: { patientId: string }) {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [text, setText] = useState("");
+  const query = `Condition?${new URLSearchParams({ patient: patientId, _count: "200" })}`;
+  const { enabled: inspecting } = useInspector();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
-      const q = new URLSearchParams({ patient: patientId, _count: "200" });
-      const { entries } = await fetchAllPages<Condition>(`Condition?${q}`, { signal });
+      const { entries } = await fetchAllPages<Condition>(query, { signal });
       return matches<Condition>(entries, "Condition").filter(
         (c) => c.verificationStatus?.coding?.[0]?.code !== "entered-in-error",
       );
@@ -48,7 +51,19 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
   return (
     <section className="card" aria-labelledby="cond-h">
       <div className="card-header">
-        <h2 id="cond-h">Conditions &amp; diagnoses</h2>
+        <h2 id="cond-h">
+          Conditions &amp; diagnoses
+          <InspectButton
+            enabled={inspecting}
+            label="the conditions search"
+            target={() => ({
+              title: "Conditions section",
+              description:
+                "A search for every Condition of this patient. The Active / Not active filter and the text filter run in the browser, on clinicalStatus and the code.",
+              requests: [query],
+            })}
+          />
+        </h2>
         <div className="toolbar">
           <div className="search" style={{ minWidth: 220 }}>
             <input
@@ -98,10 +113,24 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c, i) => (
-                <tr key={c.id ?? i}>
-                  <td className="wrap">{codeText(c.code)}</td>
-                  <td className="muted small">{codeLabel(c.code)}</td>
+              {rows.map((c, i) => {
+                const target = (): InspectTarget => ({
+                  title: `Condition: ${codeText(c.code)}`,
+                  description:
+                    "One Condition resource. The name and code come from Condition.code (SNOMED CT), the onset from onset[x], the status from clinicalStatus.",
+                  requests: [query],
+                  resources: [c],
+                  highlight: ["code", "onsetDateTime", "onsetPeriod", "onsetAge", "onsetString", "clinicalStatus"],
+                });
+                return (
+                <tr key={c.id ?? i} {...inspectable(inspecting, target)}>
+                  <td className="wrap">
+                    {codeText(c.code)}
+                    <InspectButton enabled={inspecting} target={target} label={codeText(c.code)} />
+                  </td>
+                  <td className="muted small">
+                    {codeLabel(c.code)}
+                  </td>
                   <td className="num">{conditionOnset(c)}</td>
                   <td>
                     <span className={`badge ${isConditionActive(c) ? "badge-active" : ""}`}>
@@ -109,7 +138,8 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
                     </span>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

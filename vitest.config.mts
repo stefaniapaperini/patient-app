@@ -8,5 +8,5 @@ export default defineConfig({
       "server-only": path.resolve(import.meta.dirname, "test/server-only.ts"),
     },
   },
-  test: { include: ["**/*.test.ts"], exclude: ["node_modules", ".next"] },
+  test: { include: ["**/*.test.ts", "**/*.test.tsx"], exclude: ["node_modules", ".next"] },
 });

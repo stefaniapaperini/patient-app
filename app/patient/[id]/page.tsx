@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ConditionsSection } from "@/components/ConditionsSection";
+import { InspectButton, inspectable } from "@/components/inspector/Inspect";
 import { MedicationsSection } from "@/components/MedicationsSection";
 import { PatientFormModal } from "@/components/PatientFormModal";
 import { VitalsSection } from "@/components/VitalsSection";
@@ -11,6 +12,7 @@ import { ErrorBanner, Loading } from "@/components/ui";
 import { fhirFetch, FhirError } from "@/lib/fhir/client";
 import { formatDate, formatGender, formatName } from "@/lib/fhir/format";
 import type { Patient } from "@/lib/fhir/types";
+import { useInspector, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 function age(birthDate?: string): string | undefined {
@@ -40,6 +42,17 @@ export default function PatientDetailPage() {
   );
 
   const phone = patient?.telecom?.find((t) => t.system === "phone")?.value;
+  const { enabled: inspecting } = useInspector();
+  const readUrl = `Patient/${encodeURIComponent(id)}`;
+  // One target per field, so the panel highlights exactly the JSON behind what was clicked.
+  const field =
+    (title: string, highlight: string[], description: string) =>
+    (): InspectTarget => ({ title, description, requests: [readUrl], resources: patient ? [patient] : [], highlight });
+  const whole = field(
+    "Patient resource",
+    ["name", "gender", "birthDate", "telecom"],
+    "The header is one Patient resource, read by id (GET Patient/{id}). The highlighted fields are the ones shown.",
+  );
 
   return (
     <>
@@ -57,15 +70,32 @@ export default function PatientDetailPage() {
         ) : patient ? (
           <div className="demo">
             <div>
-              <h1>{formatName(patient)}</h1>
+              <h1>
+                <span
+                  {...inspectable(
+                    inspecting,
+                    field("Name", ["name"], "Patient.name is a list: the app shows the official (or first) name, given names then family."),
+                  )}
+                >
+                  {formatName(patient)}
+                </span>
+                <InspectButton enabled={inspecting} target={whole} label="the Patient resource" />
+              </h1>
               <dl className="demo-grid">
                 <div>
                   <dt>Gender</dt>
-                  <dd>{formatGender(patient.gender)}</dd>
+                  <dd {...inspectable(inspecting, field("Gender", ["gender"], "Patient.gender is a code: male, female, other or unknown."))}>
+                    {formatGender(patient.gender)}
+                  </dd>
                 </div>
                 <div>
                   <dt>Date of birth</dt>
-                  <dd>
+                  <dd
+                    {...inspectable(
+                      inspecting,
+                      field("Date of birth", ["birthDate"], "Patient.birthDate is a FHIR date: YYYY-MM-DD, or just YYYY-MM or YYYY. The age is calculated by the app."),
+                    )}
+                  >
                     {formatDate(patient.birthDate)}
                     {age(patient.birthDate) && <span className="muted small"> · {age(patient.birthDate)}</span>}
                   </dd>
@@ -73,7 +103,7 @@ export default function PatientDetailPage() {
                 {phone && (
                   <div>
                     <dt>Phone</dt>
-                    <dd>{phone}</dd>
+                    <dd {...inspectable(inspecting, field("Phone", ["telecom"], "Phone numbers are in Patient.telecom, with system “phone”."))}>{phone}</dd>
                   </div>
                 )}
               </dl>

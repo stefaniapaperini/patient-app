@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { InspectButton, inspectable } from "@/components/inspector/Inspect";
 import { PatientFormModal } from "@/components/PatientFormModal";
 import { Empty, ErrorBanner, Loading } from "@/components/ui";
 import { formatDate, formatGender, formatName } from "@/lib/fhir/format";
 import type { Patient } from "@/lib/fhir/types";
+import type { InspectTarget } from "@/lib/inspector/store";
+import { useInspector } from "@/lib/inspector/store";
 import { usePatientSearch } from "@/lib/usePatientSearch";
 
 export default function PatientListPage() {
@@ -14,8 +17,23 @@ export default function PatientListPage() {
   const [term, setTerm] = useState("");
   const [editing, setEditing] = useState<Patient | "new" | null>(null);
   const [notice, setNotice] = useState<string>();
-  const { patients, total, hasMore, loading, loadingMore, error, moreError, loadMore, reload } =
+  const { patients, total, hasMore, loading, loadingMore, error, moreError, loadMore, reload, requestUrl } =
     usePatientSearch(term);
+  const { enabled: inspecting } = useInspector();
+  const rowTarget = (p: Patient) => (): InspectTarget => ({
+    title: `Patient row: ${formatName(p)}`,
+    description:
+      "This row is one Patient resource from a search Bundle. The name comes from name[0] (given + family), then gender and birthDate.",
+    requests: requestUrl ? [requestUrl] : [],
+    resources: [p],
+    highlight: ["name", "gender", "birthDate"],
+  });
+  const listTarget = (): InspectTarget => ({
+    title: "Patient list",
+    description:
+      "The list is a FHIR search on Patient. The server returns a Bundle of 50 patients per page; scrolling follows the Bundle’s “next” link.",
+    requests: requestUrl ? [requestUrl] : [],
+  });
 
   // Debounce the search input.
   useEffect(() => {
@@ -58,6 +76,7 @@ export default function PatientListPage() {
         <div className="card-header">
           <h1>
             Patients
+            <InspectButton enabled={inspecting} target={listTarget} label="the patient search" />
             {!loading && !error && total !== undefined && (
               <span className="sub">
                 {term ? `${total} match${total === 1 ? "" : "es"}` : `${total} total`}
@@ -117,11 +136,13 @@ export default function PatientListPage() {
                     onClick={() => open(p)}
                     onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && open(p)}
                     aria-label={`Open ${formatName(p)}`}
+                    {...inspectable(inspecting, rowTarget(p))}
                   >
                     <td>{formatName(p)}</td>
                     <td>{formatGender(p.gender)}</td>
                     <td className="num">{formatDate(p.birthDate)}</td>
                     <td className="actions">
+                      <InspectButton enabled={inspecting} target={rowTarget(p)} label={formatName(p)} />
                       <button
                         className="btn btn-sm"
                         onClick={(e) => {

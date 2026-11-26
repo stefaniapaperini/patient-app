@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorMessage, fhirFetch, FhirError, nextLink } from "./fhir/client";
+import { errorMessage, fhirFetch, FhirError, nextLink, proxyUrl } from "./fhir/client";
 import type { Bundle, Patient } from "./fhir/types";
 
 export const PAGE_SIZE = 50;
@@ -27,6 +27,8 @@ export function usePatientSearch(term: string) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string>();
   const [moreError, setMoreError] = useState<string>();
+  /** The request that produced the current list (for the FHIR Inspector). */
+  const [requestUrl, setRequestUrl] = useState<string>();
   const [tick, setTick] = useState(0);
   const contains = useRef(true);
   const runId = useRef(0);
@@ -43,21 +45,24 @@ export function usePatientSearch(term: string) {
 
     const run = async () => {
       let bundle: Bundle<Patient>;
+      let url = patientSearchUrl(term, contains.current);
       try {
-        bundle = await fhirFetch<Bundle<Patient>>(patientSearchUrl(term, contains.current), { signal: ctrl.signal });
+        bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
       } catch (e) {
         // HAPI answers 400 for an unknown modifier, or 405 ("HAPI-1258") when :contains is disabled.
         if (term.trim() && contains.current && e instanceof FhirError && (e.status === 400 || e.status === 405 || e.status === 501)) {
           contains.current = false;
-          bundle = await fhirFetch<Bundle<Patient>>(patientSearchUrl(term, false), { signal: ctrl.signal });
+          url = patientSearchUrl(term, false);
+          bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
         } else throw e;
       }
-      return bundle;
+      return { bundle, url };
     };
 
     run()
-      .then((bundle) => {
+      .then(({ bundle, url }) => {
         if (id !== runId.current) return;
+        setRequestUrl(url);
         setPatients((bundle.entry ?? []).map((e) => e.resource!).filter((r) => r?.resourceType === "Patient"));
         setTotal(bundle.total);
         setNext(nextLink(bundle));
@@ -81,7 +86,7 @@ export function usePatientSearch(term: string) {
     setLoadingMore(true);
     setMoreError(undefined);
     try {
-      const bundle = await fhirFetch<Bundle<Patient>>(next);
+      const bundle = await fhirFetch<Bundle<Patient>>(next, { group: requestUrl ? proxyUrl(requestUrl) : undefined });
       if (id !== runId.current) return;
       setPatients((prev) => {
         const seen = new Set(prev.map((p) => p.id));
@@ -96,9 +101,9 @@ export function usePatientSearch(term: string) {
     } finally {
       if (id === runId.current) setLoadingMore(false);
     }
-  }, [next, loadingMore]);
+  }, [next, loadingMore, requestUrl]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
-  return { patients, total, hasMore: !!next, loading, loadingMore, error, moreError, loadMore, reload };
+  return { patients, total, hasMore: !!next, loading, loadingMore, error, moreError, loadMore, reload, requestUrl };
 }

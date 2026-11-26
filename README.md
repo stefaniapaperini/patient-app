@@ -58,3 +58,28 @@ docker run -p 8080:8080 --env-file .env patient-app
 
 The vitals query also includes `85354-9` (the blood pressure panel code used by Synthea and US Core)
 and standalone systolic/diastolic codes, so blood pressure shows however it is stored.
+
+## Learning FHIR: Inspector and Console
+
+The app has Postman-like tools built in, for checking the FHIR data behind the screen and learning FHIR.
+
+- **FHIR Inspector** (switch in the header; off whenever the page is loaded). Parts of the page that come from
+  FHIR get a violet outline. **Right-click** one, or press its **ⓘ** button, to open a side panel
+  titled with that element:
+  1. the request the app sent, with every query parameter explained, its status and time;
+  2. the resources behind the element, with the displayed fields highlighted. Hover a field name
+     for an explanation; codes show their meaning (LOINC codes link to loinc.org).
+
+  On an empty vital-sign chart, **“Why is this empty?” → Check the server** fetches all of the
+  patient’s Observations without the code filter and says whether the data is missing on the server
+  or the query is the problem.
+- **Request log** (header button, while the inspector is on): every FHIR request the page made, newest first,
+  with the full response, **Copy as curl** and **Open in console**.
+- **FHIR Console** (`/console`, linked in the header while the inspector is on): send your own GET, POST or PUT requests through the proxy, with
+  parameter suggestions, an explanation of the request before you send it, paging and examples.
+  The proxy rules still apply: it reads the five resource types above and only writes Patients.
+- **Learn FHIR** (header button, while the inspector is on): resources, references, codes, searching, writing and errors, with
+  examples that open in the console.
+
+“Copy as curl” never contains the token: it uses `$FHIR_BASE_URL` and `$FHIR_TOKEN`. Load them with
+`set -a; source .env; set +a` before running the command in a terminal.

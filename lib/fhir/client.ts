@@ -3,6 +3,7 @@
  * which adds the Authorization header.
  */
 import type { Bundle, OperationOutcome, Resource } from "./types";
+import { recordRequest } from "@/lib/inspector/store";
 
 export const PROXY_BASE = "/api/fhir";
 
@@ -62,12 +63,20 @@ export function proxyUrl(path: string): string {
  * `body` is undefined when the server sent an empty response (e.g. it ignored
  * `Prefer: return=representation`).
  */
+export interface FhirInit extends RequestInit {
+  json?: unknown;
+  /** For the FHIR Inspector: the first-page URL of a multi-page search this request belongs to. */
+  group?: string;
+}
+
 export async function fhirRequest<T = Resource>(
   path: string,
-  init: RequestInit & { json?: unknown } = {},
+  init: FhirInit = {},
 ): Promise<{ body: T | undefined; location: string | undefined; status: number }> {
-  const { json, headers, ...rest } = init;
+  const { json, headers, group, ...rest } = init;
   const url = proxyUrl(path);
+  // Every request is logged for the FHIR Inspector (request log, element panel, console).
+  const done = recordRequest({ method: (rest.method ?? "GET").toUpperCase(), url, group: group ?? url, requestBody: json });
   let res: Response;
   try {
     res = await fetch(url, {
@@ -81,7 +90,11 @@ export async function fhirRequest<T = Resource>(
       cache: "no-store",
     });
   } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    if (e instanceof DOMException && e.name === "AbortError") {
+      done({ status: 0, error: "Cancelled (the page no longer needed this request)." });
+      throw e;
+    }
+    done({ status: 0, error: "Network error: could not reach the app server." });
     throw new FhirError("Network error: could not reach the app server. Is it running?", 0);
   }
   const text = await res.text();
@@ -91,13 +104,17 @@ export async function fhirRequest<T = Resource>(
   } catch {
     body = undefined;
   }
+  const location = res.headers.get("location") ?? undefined;
   if (!res.ok) {
-    throw new FhirError(outcomeMessage(body, res.status, res.statusText), res.status, body as OperationOutcome);
+    const message = outcomeMessage(body, res.status, res.statusText);
+    done({ status: res.status, responseBody: body, error: message });
+    throw new FhirError(message, res.status, body as OperationOutcome);
   }
-  return { body: body as T | undefined, location: res.headers.get("location") ?? undefined, status: res.status };
+  done({ status: res.status, responseBody: body, location });
+  return { body: body as T | undefined, location, status: res.status };
 }
 
-export async function fhirFetch<T = Resource>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+export async function fhirFetch<T = Resource>(path: string, init: FhirInit = {}): Promise<T> {
   return (await fhirRequest<T>(path, init)).body as T;
 }
 
@@ -116,8 +133,9 @@ export async function fetchAllPages<T extends Resource = Resource>(
   const entries: NonNullable<Bundle<T>["entry"]> = [];
   let url: string | undefined = path;
   let pages = 0;
+  const group = proxyUrl(path);
   while (url && pages < maxPages) {
-    const bundle: Bundle<T> = await fhirFetch<Bundle<T>>(url, { signal });
+    const bundle: Bundle<T> = await fhirFetch<Bundle<T>>(url, { signal, group });
     entries.push(...(bundle.entry ?? []));
     url = nextLink(bundle);
     pages++;

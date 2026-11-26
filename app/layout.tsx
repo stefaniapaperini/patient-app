@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { InspectorPanel } from "@/components/inspector/InspectorPanel";
+import { InspectorToggle } from "@/components/inspector/InspectorToggle";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,9 +17,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Link href="/" className="brand">
             <span className="brand-mark" aria-hidden>✚</span> Patient Management
           </Link>
-          <span className="topbar-note">FHIR R4</span>
+          <InspectorToggle />
         </header>
         <main className="container">{children}</main>
+        <InspectorPanel />
       </body>
     </html>
   );
