@@ -80,8 +80,9 @@ Paging: the patient list loads 50 records per page as the user scrolls. Detail s
 3. Adds `Authorization`, `Accept`, `Prefer` and `If-Match` where they apply.
 4. Forwards the request with a 30-second timeout.
 5. Rejects responses that are not JSON.
-6. Rewrites absolute Bundle links to same-origin proxy URLs, so internal hostnames are never exposed.
-7. Returns upstream errors as they are, or generates an `OperationOutcome`: 502 for connection failures, 504 for timeouts.
+6. Drops Bundle entries of types outside the allowlist (pulled in by `_include`, `_revinclude` or compartment searches) and refuses a single resource of such a type with 403.
+7. Rewrites absolute Bundle links to same-origin proxy URLs, so internal hostnames are never exposed.
+8. Returns upstream errors as they are, or generates an `OperationOutcome`: 502 for connection failures, 504 for timeouts.
 
 | Method | Allowed |
 | --- | --- |
@@ -112,7 +113,7 @@ Inspector mode is off after every page load and is never written to storage. Tur
 
 ## Security model
 
-The proxy is the security boundary. The browser never receives the token or the upstream URL, cannot reach arbitrary URLs, can read only allowlisted resource types, and can write only Patient create and update requests. No FHIR data or log contents are written to browser storage.
+The proxy is the security boundary. The browser never receives the token or the upstream URL, cannot reach arbitrary URLs, can read only allowlisted resource types (enforced on both the path and the response), and can write only Patient create and update requests. No FHIR data or log contents are written to browser storage.
 
 The app has no user authentication or authorization of its own. The deployment environment must protect access to the UI and to the FHIR server.
 

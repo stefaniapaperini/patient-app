@@ -45,9 +45,13 @@ const EXAMPLES: { label: string; method: Method; url: string; body?: string }[] 
   },
 ];
 
-/** "[base]/Patient?x", "/Patient?x" or "Patient?x" -> "Patient?x" */
+/** "[base]/Patient?x", "/api/fhir/Patient?x", "/Patient?x" or "Patient?x" -> "Patient?x" */
 function cleanUrl(u: string): string {
-  return u.trim().replace(/^\[base\]/, "").replace(/^\/+/, "");
+  return u
+    .trim()
+    .replace(/^\[base\]/, "")
+    .replace(/^\/*api\/fhir(?=[/?]|$)/, "")
+    .replace(/^\/+/, "");
 }
 
 export default function ConsolePage() {

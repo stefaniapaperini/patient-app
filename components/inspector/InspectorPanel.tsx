@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { errorMessage, fetchAllPages, proxyUrl } from "@/lib/fhir/client";
+import { errorMessage, fhirFetch, proxyUrl } from "@/lib/fhir/client";
 import type { Resource } from "@/lib/fhir/types";
 import { specUrl } from "@/lib/inspector/glossary";
 import {
@@ -152,7 +152,8 @@ function MissingRequest({ request }: { request: string }) {
   const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string }>({ kind: "loading" });
   useEffect(() => {
     let cancelled = false;
-    fetchAllPages(request).catch((e) => !cancelled && setState({ kind: "error", message: errorMessage(e) }));
+    // Only the first page: the page itself may have loaded just that, and later pages are grouped under it in the log.
+    fhirFetch(request).catch((e) => !cancelled && setState({ kind: "error", message: errorMessage(e) }));
     return () => {
       cancelled = true;
     };

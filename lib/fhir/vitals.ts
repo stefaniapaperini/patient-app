@@ -52,7 +52,8 @@ export function vitalsQuery(patientId: string): string {
   const p = new URLSearchParams({
     subject: `Patient/${patientId}`,
     code: VITALS_QUERY_CODES.join(","),
-    _sort: "date",
+    // Newest first: if a long history hits the page cap, the oldest readings are the ones left out.
+    _sort: "-date",
     _count: "200",
   });
   return `Observation?${p.toString()}`;

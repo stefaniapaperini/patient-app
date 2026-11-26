@@ -106,6 +106,29 @@ export function rewriteBundleLinks(body: unknown, base: URL): unknown {
   return b;
 }
 
+/**
+ * Enforces ALLOWED_RESOURCES on what comes back, not only on the path: _include, _revinclude and
+ * compartment searches (Patient/1/Encounter) make the server return other resource types.
+ * - A Bundle keeps only entries whose resource is an allowed type or an OperationOutcome;
+ *   Bundle.total still counts the matches, which are allowed types.
+ * - A single resource of another type is refused: returns REFUSED.
+ * JSON without a resourceType (e.g. a gateway error) is not a resource and passes unchanged.
+ */
+export const REFUSED = Symbol("refused");
+
+export function filterDisallowed(body: unknown): unknown {
+  if (!body || typeof body !== "object") return body;
+  const r = body as { resourceType?: unknown; entry?: unknown };
+  const allowed = (t: unknown) => typeof t === "string" && (ALLOWED_RESOURCES.has(t) || t === "OperationOutcome");
+  if (r.resourceType === "Bundle") {
+    if (Array.isArray(r.entry)) {
+      r.entry = r.entry.filter((e) => !e?.resource || allowed(e.resource.resourceType));
+    }
+    return r;
+  }
+  return r.resourceType === undefined || allowed(r.resourceType) ? r : REFUSED;
+}
+
 /** Builds a FHIR OperationOutcome so every proxy error has the same shape as server errors. */
 export function operationOutcome(diagnostics: string, code = "processing") {
   return {

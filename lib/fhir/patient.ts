@@ -152,6 +152,8 @@ export function buildUpdatedPatient(original: Patient, v: PatientFormValues): Pa
   else names.unshift({ use: "official", ...newName });
   updated.name = names;
 
+  // The narrative would still describe the old demographics, so drop it rather than send a stale one.
+  delete updated.text;
   updated.gender = n.gender;
   updated.birthDate = n.birthDate;
 

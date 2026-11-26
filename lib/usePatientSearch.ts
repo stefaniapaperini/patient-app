@@ -55,9 +55,11 @@ export function usePatientSearch(term: string) {
       } catch (e) {
         // HAPI answers 400 for an unknown modifier, or 405 ("HAPI-1258") when :contains is disabled.
         if (term.trim() && contains.current && e instanceof FhirError && (e.status === 400 || e.status === 405 || e.status === 501)) {
-          contains.current = false;
           url = tried = patientSearchUrl(term, false);
           bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
+          // Only now is it clear the modifier was the problem: a 400 for another reason fails again
+          // above, and :contains stays on for later searches.
+          contains.current = false;
         } else throw e;
       }
       return { bundle, url };

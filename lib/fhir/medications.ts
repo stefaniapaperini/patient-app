@@ -6,9 +6,33 @@
 import { codeText, DASH } from "./format";
 import type { Bundle, Medication, MedicationRequest } from "./types";
 
-/** "Medication/123" or an absolute URL ending in Medication/123 -> "Medication/123". */
-export function normalizeRef(ref: string): string {
-  const m = /(?:^|\/)(Medication\/[^/?#]+)(?:\/_history\/[^/?#]+)?$/.exec(ref);
+/**
+ * The FHIR server's base URL as it names itself in search results: entry.fullUrl is
+ * "{base}/{type}/{id}". Undefined if no entry has a fullUrl of that shape.
+ */
+export function serverBase(entries: NonNullable<Bundle["entry"]>): string | undefined {
+  for (const e of entries) {
+    const r = e.resource;
+    if (!e.fullUrl || !r?.id) continue;
+    const tail = `/${r.resourceType}/${r.id}`;
+    if (e.fullUrl.endsWith(tail)) return e.fullUrl.slice(0, -tail.length);
+  }
+  return undefined;
+}
+
+/**
+ * "Medication/123" (optionally with /_history/v) -> "Medication/123". An absolute URL is shortened
+ * the same way only when it is on this server (`base`); a reference to another server is returned
+ * unchanged, so it is never looked up here, where the same id may be a different drug.
+ */
+export function normalizeRef(ref: string, base?: string): string {
+  let rel = ref;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(ref)) {
+    const b = base?.replace(/\/+$/, "");
+    if (!b || !ref.startsWith(b + "/")) return ref;
+    rel = ref.slice(b.length + 1);
+  }
+  const m = /^(Medication\/[^/?#]+)(?:\/_history\/[^/?#]+)?$/.exec(rel);
   return m ? m[1] : ref;
 }
 
@@ -23,19 +47,19 @@ export function includedMedications(entries: NonNullable<Bundle["entry"]>): Map<
 }
 
 /** References that are neither contained nor already in `known`: these need a separate GET. */
-export function unresolvedRefs(requests: MedicationRequest[], known: Map<string, Medication>): string[] {
+export function unresolvedRefs(requests: MedicationRequest[], known: Map<string, Medication>, base?: string): string[] {
   const out = new Set<string>();
   for (const r of requests) {
     if (r.medicationCodeableConcept) continue;
     const ref = r.medicationReference?.reference;
     if (!ref || ref.startsWith("#")) continue;
-    const key = normalizeRef(ref);
+    const key = normalizeRef(ref, base);
     if (key.startsWith("Medication/") && !known.has(key)) out.add(key);
   }
   return [...out];
 }
 
-export function medicationName(r: MedicationRequest, known: Map<string, Medication>): string {
+export function medicationName(r: MedicationRequest, known: Map<string, Medication>, base?: string): string {
   if (r.medicationCodeableConcept) return codeText(r.medicationCodeableConcept);
   const ref = r.medicationReference;
   if (ref?.reference) {
@@ -46,7 +70,7 @@ export function medicationName(r: MedicationRequest, known: Map<string, Medicati
         | undefined;
       if (contained?.code) return codeText(contained.code);
     } else {
-      const med = known.get(normalizeRef(ref.reference));
+      const med = known.get(normalizeRef(ref.reference, base));
       if (med?.code) return codeText(med.code);
     }
   }

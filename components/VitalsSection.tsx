@@ -74,7 +74,7 @@ export function VitalsSection({ patientId }: { patientId: string }) {
             target={() => ({
               title: "Vital signs section",
               description:
-                "One Observation search for this patient, filtered by the LOINC codes of the vital signs (code=… with commas meaning OR), sorted by date. Every chart and table row is built from its results.",
+                "One Observation search for this patient, filtered by the LOINC codes of the vital signs (code=… with commas meaning OR), sorted newest first. Every chart and table row is built from its results.",
               requests: [query],
             })}
           />

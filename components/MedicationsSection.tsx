@@ -6,7 +6,7 @@ import { CodeChip } from "./inspector/CodeChip";
 import { InspectButton, inspectable } from "./inspector/Inspect";
 import { fetchAllPages, fhirFetch, matches } from "@/lib/fhir/client";
 import { capitalize, formatDate, formatDose, formatFrequency, formatRoute } from "@/lib/fhir/format";
-import { includedMedications, isMedicationActive, medicationName, normalizeRef, unresolvedRefs } from "@/lib/fhir/medications";
+import { includedMedications, isMedicationActive, medicationName, normalizeRef, serverBase, unresolvedRefs } from "@/lib/fhir/medications";
 import type { Medication, MedicationRequest } from "@/lib/fhir/types";
 import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
@@ -33,9 +33,10 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
       const { entries } = await fetchAllPages<MedicationRequest>(query, { signal });
       const requests = matches<MedicationRequest>(entries, "MedicationRequest");
       const known = includedMedications(entries);
+      const base = serverBase(entries);
 
       // Fallback: GET any referenced Medication the server did not include.
-      const missing = unresolvedRefs(requests, known);
+      const missing = unresolvedRefs(requests, known, base);
       const failed: string[] = [];
       for (let i = 0; i < missing.length; i += CONCURRENCY) {
         await Promise.all(
@@ -49,7 +50,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
         );
       }
       // Referenced Medications fetched one by one (not returned by _include): the inspector shows those GETs too.
-      return { requests, known, failed, fetchedSeparately: new Set(missing) };
+      return { requests, known, base, failed, fetchedSeparately: new Set(missing) };
     },
     [patientId],
   );
@@ -63,7 +64,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
     if (!data) return [];
     return data.requests
       .filter((r) => status === "all" || isMedicationActive(r))
-      .map((r) => ({ r, name: medicationName(r, data.known), dosage: r.dosageInstruction?.[0] }))
+      .map((r) => ({ r, name: medicationName(r, data.known, data.base), dosage: r.dosageInstruction?.[0] }))
       .sort(
         (a, b) =>
           Number(isMedicationActive(b.r)) - Number(isMedicationActive(a.r)) ||
@@ -128,7 +129,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
                 <tbody>
                   {rows.map(({ r, name, dosage }, i) => {
                     const ref = r.medicationReference?.reference;
-                    const med = ref && !ref.startsWith("#") ? data?.known.get(normalizeRef(ref)) : undefined;
+                    const med = ref && !ref.startsWith("#") ? data?.known.get(normalizeRef(ref, data?.base)) : undefined;
                     const coding = (r.medicationCodeableConcept ?? med?.code)?.coding?.find((c) => c.code);
                     const target = (): InspectTarget => ({
                       title: `Medication: ${name}`,
@@ -136,7 +137,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
                         ? "The prescription (MedicationRequest) refers to a separate Medication resource through medicationReference, so the name comes from that Medication’s code."
                         : "One MedicationRequest. The name comes from medicationCodeableConcept, the dose, frequency and route from dosageInstruction[0].",
                       requests:
-                        ref && data?.fetchedSeparately.has(normalizeRef(ref)) ? [query, normalizeRef(ref)] : [query],
+                        ref && data?.fetchedSeparately.has(normalizeRef(ref, data?.base)) ? [query, normalizeRef(ref, data?.base)] : [query],
                       resources: med ? [r, med] : [r],
                       highlight: ["medicationCodeableConcept", "medicationReference", "dosageInstruction", "status", "authoredOn", "code"],
                     });

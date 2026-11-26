@@ -10,9 +10,9 @@ import {
 } from "./format";
 import { buildNewPatient, buildUpdatedPatient, isPartialDate, patientToForm, validatePatient, type PatientFormValues } from "./patient";
 import { chartRows, extractReadings, fhirTime, normalizeQuantity, unitFor, vitalsQuery } from "./vitals";
-import { includedMedications, medicationName, normalizeRef, unresolvedRefs } from "./medications";
+import { includedMedications, medicationName, normalizeRef, serverBase, unresolvedRefs } from "./medications";
 import { outcomeMessage, proxyUrl } from "./client";
-import { buildUpstreamUrl, rewriteBundleLinks, toProxyUrl } from "../server/proxy";
+import { buildUpstreamUrl, filterDisallowed, REFUSED, rewriteBundleLinks, toProxyUrl } from "../server/proxy";
 import type { Condition, MedicationRequest, Observation, Patient } from "./types";
 
 const NOW = new Date("2026-11-26T12:00:00");
@@ -88,6 +88,15 @@ describe("Patient resources", () => {
     expect(u.name![1]).toEqual({ use: "maiden", family: "Maid" });
     expect(u.telecom).toEqual([{ system: "email", value: "a@b.c" }, { system: "phone", value: "222222" }]);
     expect(u.birthDate).toBe("1980-04-12");
+  });
+  it("drops the narrative when updating, since it describes the old demographics", () => {
+    const original: Patient = {
+      resourceType: "Patient",
+      id: "p1",
+      text: { status: "generated", div: "<div>John Smith, born 1980-01-01</div>" },
+      name: [{ given: ["John"], family: "Smith" }],
+    } as Patient;
+    expect(buildUpdatedPatient(original, valid).text).toBeUndefined();
   });
   it("keeps meta tags, security labels and profiles when updating", () => {
     const original: Patient = {
@@ -228,7 +237,9 @@ describe("medications", () => {
   });
   it("resolves medicationReference via included, absolute and contained resources", () => {
     expect(medicationName({ ...base, medicationReference: { reference: "Medication/m1" } }, known)).toBe("Metformin 500 mg");
-    expect(medicationName({ ...base, medicationReference: { reference: "https://x/fhir/Medication/m1" } }, known)).toBe("Metformin 500 mg");
+    expect(medicationName({ ...base, medicationReference: { reference: "https://x/fhir/Medication/m1" } }, known, "https://x/fhir")).toBe(
+      "Metformin 500 mg",
+    );
     const contained: MedicationRequest = {
       ...base,
       contained: [{ resourceType: "Medication", id: "c1", code: { text: "Insulin" } }],
@@ -247,10 +258,42 @@ describe("medications", () => {
     expect(unresolvedRefs(reqs, known)).toEqual(["Medication/m2"]);
     expect(normalizeRef("Medication/m2/_history/1")).toBe("Medication/m2");
   });
+  it("never resolves a reference to another server against this one", () => {
+    const other = { ...base, medicationReference: { reference: "https://other.org/fhir/Medication/m1", display: "Other drug" } };
+    expect(medicationName(other, known, "https://x/fhir")).toBe("Other drug");
+    expect(medicationName(other, known)).toBe("Other drug");
+    expect(unresolvedRefs([other], new Map(), "https://x/fhir")).toEqual([]);
+    expect(normalizeRef("https://x/fhir/Medication/m2/_history/1", "https://x/fhir/")).toBe("Medication/m2");
+  });
+  it("finds the server base from entry.fullUrl", () => {
+    expect(serverBase([{ fullUrl: "https://x/fhir/MedicationRequest/r1", resource: { resourceType: "MedicationRequest", id: "r1" } as never }])).toBe(
+      "https://x/fhir",
+    );
+    expect(serverBase([{ resource: { resourceType: "MedicationRequest", id: "r1" } as never }])).toBeUndefined();
+  });
 });
 
 describe("proxy", () => {
   const base = new URL("https://fhir.example.com/fhir/TENANT");
+  it("removes resource types outside the allowlist from responses", () => {
+    // _revinclude=*, _include of a Practitioner, or Patient/1/Encounter return other types.
+    const bundle = {
+      resourceType: "Bundle",
+      total: 1,
+      entry: [
+        { resource: { resourceType: "Patient", id: "1" } },
+        { resource: { resourceType: "Encounter", id: "e" } },
+        { resource: { resourceType: "Practitioner", id: "pr" } },
+        { resource: { resourceType: "OperationOutcome" } },
+      ],
+    };
+    const out = filterDisallowed(bundle) as typeof bundle;
+    expect(out.entry.map((e) => e.resource.resourceType)).toEqual(["Patient", "OperationOutcome"]);
+    expect(filterDisallowed({ resourceType: "Encounter", id: "5" })).toBe(REFUSED);
+    expect(filterDisallowed({ resourceType: "Patient", id: "5" })).toEqual({ resourceType: "Patient", id: "5" });
+    expect(filterDisallowed({ error: "gateway" })).toEqual({ error: "gateway" });
+    expect(filterDisallowed(null)).toBeNull();
+  });
   it("builds upstream URLs only for allowed resources", () => {
     expect(buildUpstreamUrl("GET", base, ["Patient"], "?name:contains=smi")?.toString()).toBe(
       "https://fhir.example.com/fhir/TENANT/Patient?name:contains=smi",

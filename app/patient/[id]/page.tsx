@@ -34,7 +34,8 @@ export default function PatientDetailPage() {
       try {
         return await fhirFetch<Patient>(`Patient/${encodeURIComponent(id)}`, { signal });
       } catch (e) {
-        if (e instanceof FhirError && (e.status === 404 || e.status === 410)) setNotFound(true);
+        // A stale run (id changed meanwhile) must not mark the new id as not found.
+        if (!signal.aborted && e instanceof FhirError && (e.status === 404 || e.status === 410)) setNotFound(true);
         throw e;
       }
     },

@@ -46,14 +46,15 @@ export default function PatientListPage() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    // After a failed page, wait for the Retry button: re-observing would retry at once, in a loop.
+    if (!el || !hasMore || moreError) return;
     const io = new IntersectionObserver((es) => es[0].isIntersecting && loadMore(), {
       root: scrollRef.current,
       rootMargin: "200px",
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [hasMore, loadMore, patients.length]);
+  }, [hasMore, moreError, loadMore, patients.length]);
 
   const open = (p: Patient) => router.push(`/patient/${encodeURIComponent(p.id!)}`);
 

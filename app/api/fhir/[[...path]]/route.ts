@@ -6,6 +6,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ConfigError,
   buildUpstreamUrl,
+  filterDisallowed,
+  REFUSED,
   operationOutcome,
   readConfig,
   rewriteBundleLinks,
@@ -83,22 +85,17 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
   const location = res.headers.get("location") ?? res.headers.get("content-location");
   if (location) outHeaders.set("Location", toProxyUrl(location, config.baseUrl));
 
-  if (!text) return new Response(null, { status: res.status, headers: outHeaders });
-
   let json: unknown;
   try {
-    json = JSON.parse(text);
+    json = text ? JSON.parse(text) : undefined;
   } catch {
-    // Upstream sent non-JSON (e.g. an HTML error page from a gateway). Don't forward it raw.
-    const snippet = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-    return errorResponse(
-      res.ok ? 502 : res.status,
-      `FHIR server returned HTTP ${res.status} with a non-FHIR response${snippet ? `: ${snippet}` : "."}`,
-    );
+    json = undefined;
   }
+
   if (res.status === 401 || res.status === 403) {
-    // Make auth failures obvious: the browser can't fix these, only the server config can.
-    const detail = (json as { issue?: { diagnostics?: string }[] })?.issue?.[0]?.diagnostics;
+    // Make auth failures obvious, whatever the body (gateways often send none, or HTML): the
+    // browser can't fix these, only the server config can.
+    const detail = (json as { issue?: { diagnostics?: string }[] } | undefined)?.issue?.[0]?.diagnostics;
     return errorResponse(
       res.status,
       `The FHIR server rejected the credentials (HTTP ${res.status}). Check FHIR_TOKEN in .env.${detail ? ` Server said: ${detail}` : ""}`,
@@ -106,7 +103,22 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
     );
   }
 
-  return new Response(JSON.stringify(rewriteBundleLinks(json, config.baseUrl)), {
+  if (!text) return new Response(null, { status: res.status, headers: outHeaders });
+
+  if (json === undefined) {
+    // Upstream sent non-JSON (e.g. an HTML error page from a gateway). Don't forward it raw.
+    const snippet = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+    return errorResponse(
+      res.ok ? 502 : res.status,
+      `FHIR server returned HTTP ${res.status} with a non-FHIR response${snippet ? `: ${snippet}` : "."}`,
+    );
+  }
+  const allowed = filterDisallowed(json);
+  if (allowed === REFUSED) {
+    return errorResponse(403, "The FHIR server returned a resource type the proxy does not allow.", "forbidden");
+  }
+
+  return new Response(JSON.stringify(rewriteBundleLinks(allowed, config.baseUrl)), {
     status: res.status,
     headers: outHeaders,
   });
