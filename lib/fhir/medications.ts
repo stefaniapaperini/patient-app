@@ -21,9 +21,12 @@ export function serverBase(entries: NonNullable<Bundle["entry"]>): string | unde
 }
 
 /**
- * "Medication/123" (optionally with /_history/v) -> "Medication/123". An absolute URL is shortened
- * the same way only when it is on this server (`base`); a reference to another server is returned
- * unchanged, so it is never looked up here, where the same id may be a different drug.
+ * "Medication/123" or "/Medication/123" (optionally with /_history/v) -> "Medication/123".
+ * An absolute URL is shortened the same way only when it starts with this server's base as its
+ * search results name it (`base`, from entry.fullUrl). Anything else is returned unchanged and is
+ * never looked up here: matching on the path alone would send https://other.org/fhir/Medication/42
+ * to this server's Medication/42, which may be a different drug. Such a reference shows its
+ * `display` instead.
  */
 export function normalizeRef(ref: string, base?: string): string {
   let rel = ref;
@@ -31,6 +34,8 @@ export function normalizeRef(ref: string, base?: string): string {
     const b = base?.replace(/\/+$/, "");
     if (!b || !ref.startsWith(b + "/")) return ref;
     rel = ref.slice(b.length + 1);
+  } else {
+    rel = ref.replace(/^\/+/, "");
   }
   const m = /^(Medication\/[^/?#]+)(?:\/_history\/[^/?#]+)?$/.exec(rel);
   return m ? m[1] : ref;

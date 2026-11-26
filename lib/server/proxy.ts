@@ -112,6 +112,8 @@ export function rewriteBundleLinks(body: unknown, base: URL): unknown {
  * - A Bundle keeps only entries whose resource is an allowed type or an OperationOutcome;
  *   Bundle.total still counts the matches, which are allowed types.
  * - A single resource of another type is refused: returns REFUSED.
+ * - Resources embedded in an allowed one (`contained`) are filtered the same way, so a
+ *   MedicationRequest cannot carry a contained Practitioner to the browser.
  * JSON without a resourceType (e.g. a gateway error) is not a resource and passes unchanged.
  */
 export const REFUSED = Symbol("refused");
@@ -119,14 +121,27 @@ export const REFUSED = Symbol("refused");
 export function filterDisallowed(body: unknown): unknown {
   if (!body || typeof body !== "object") return body;
   const r = body as { resourceType?: unknown; entry?: unknown };
-  const allowed = (t: unknown) => typeof t === "string" && (ALLOWED_RESOURCES.has(t) || t === "OperationOutcome");
   if (r.resourceType === "Bundle") {
     if (Array.isArray(r.entry)) {
-      r.entry = r.entry.filter((e) => !e?.resource || allowed(e.resource.resourceType));
+      r.entry = r.entry.filter((e) => !e?.resource || allowedType(e.resource.resourceType));
+      for (const e of r.entry as { resource?: unknown }[]) stripContained(e?.resource);
     }
     return r;
   }
-  return r.resourceType === undefined || allowed(r.resourceType) ? r : REFUSED;
+  if (r.resourceType !== undefined && !allowedType(r.resourceType)) return REFUSED;
+  stripContained(r);
+  return r;
+}
+
+function allowedType(t: unknown): boolean {
+  return typeof t === "string" && (ALLOWED_RESOURCES.has(t) || t === "OperationOutcome");
+}
+
+function stripContained(resource: unknown) {
+  const r = resource as { contained?: unknown } | null | undefined;
+  if (r && typeof r === "object" && Array.isArray(r.contained)) {
+    r.contained = r.contained.filter((c) => allowedType((c as { resourceType?: unknown } | null)?.resourceType));
+  }
 }
 
 /** Builds a FHIR OperationOutcome so every proxy error has the same shape as server errors. */

@@ -55,6 +55,8 @@ export function proxyUrl(path: string): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
     throw new FhirError(`The FHIR server returned a link the app cannot follow: ${path}`, 0);
   }
+  // A query with no path (a paging link at the server base) goes to the proxy base itself.
+  if (path.startsWith("?")) return PROXY_BASE + path;
   return `${PROXY_BASE}/${path.replace(/^\/+/, "")}`;
 }
 

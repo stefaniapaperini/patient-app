@@ -45,11 +45,15 @@ const EXAMPLES: { label: string; method: Method; url: string; body?: string }[] 
   },
 ];
 
-/** "[base]/Patient?x", "/api/fhir/Patient?x", "/Patient?x" or "Patient?x" -> "Patient?x" */
+/**
+ * "[base]/Patient?x", "http://localhost:3000/api/fhir/Patient?x", "/api/fhir/Patient?x", "/Patient?x"
+ * or "Patient?x" -> "Patient?x". A paging link "/api/fhir?_getpages=..." -> "?_getpages=...".
+ */
 function cleanUrl(u: string): string {
   return u
     .trim()
     .replace(/^\[base\]/, "")
+    .replace(/^https?:\/\/[^/?#]+(?=\/api\/fhir(?:[/?]|$))/i, "")
     .replace(/^\/*api\/fhir(?=[/?]|$)/, "")
     .replace(/^\/+/, "");
 }

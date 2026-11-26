@@ -80,7 +80,7 @@ Paging: the patient list loads 50 records per page as the user scrolls. Detail s
 3. Adds `Authorization`, `Accept`, `Prefer` and `If-Match` where they apply.
 4. Forwards the request with a 30-second timeout.
 5. Rejects responses that are not JSON.
-6. Drops Bundle entries of types outside the allowlist (pulled in by `_include`, `_revinclude` or compartment searches) and refuses a single resource of such a type with 403.
+6. Drops Bundle entries and `contained` resources of types outside the allowlist (pulled in by `_include`, `_revinclude`, compartment searches or embedding) and refuses a single resource of such a type with 403.
 7. Rewrites absolute Bundle links to same-origin proxy URLs, so internal hostnames are never exposed.
 8. Returns upstream errors as they are, or generates an `OperationOutcome`: 502 for connection failures, 504 for timeouts.
 

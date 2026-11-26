@@ -55,10 +55,13 @@ export function usePatientSearch(term: string) {
       } catch (e) {
         // HAPI answers 400 for an unknown modifier, or 405 ("HAPI-1258") when :contains is disabled.
         if (term.trim() && contains.current && e instanceof FhirError && (e.status === 400 || e.status === 405 || e.status === 501)) {
+          // 405/501 or HAPI-1258 mean the modifier is unsupported: remember that at once, even if the
+          // retry below is cancelled. A plain 400 may have another cause, so it only counts once the
+          // search without :contains succeeds.
+          const unsupported = e.status === 405 || e.status === 501 || /HAPI-1258/.test(e.message);
+          if (unsupported) contains.current = false;
           url = tried = patientSearchUrl(term, false);
           bundle = await fhirFetch<Bundle<Patient>>(url, { signal: ctrl.signal });
-          // Only now is it clear the modifier was the problem: a 400 for another reason fails again
-          // above, and :contains stays on for later searches.
           contains.current = false;
         } else throw e;
       }

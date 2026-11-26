@@ -99,7 +99,7 @@ export function VitalsSection({ patientId }: { patientId: string }) {
       ) : (
         <>
           {data.truncated && (
-            <p className="muted small">Showing the first readings only: this patient has a very large number of observations.</p>
+            <p className="muted small">Showing the most recent readings only: this patient has a very large number of observations, and the oldest were not loaded.</p>
           )}
           {view === "chart" ? <VitalsCharts readings={data.readings} ctx={ctx} /> : <VitalsTable readings={data.readings} ctx={ctx} />}
         </>

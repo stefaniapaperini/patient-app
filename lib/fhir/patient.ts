@@ -152,8 +152,9 @@ export function buildUpdatedPatient(original: Patient, v: PatientFormValues): Pa
   else names.unshift({ use: "official", ...newName });
   updated.name = names;
 
-  // The narrative would still describe the old demographics, so drop it rather than send a stale one.
-  delete updated.text;
+  // A generated narrative is built from these fields and would now describe the old values, so
+  // drop it. Other statuses ("additional", "extensions") hold text people wrote: keep it.
+  if ((updated.text as { status?: string } | undefined)?.status === "generated") delete updated.text;
   updated.gender = n.gender;
   updated.birthDate = n.birthDate;
 

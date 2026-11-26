@@ -98,6 +98,11 @@ describe("Patient resources", () => {
     } as Patient;
     expect(buildUpdatedPatient(original, valid).text).toBeUndefined();
   });
+  it("keeps a narrative people wrote when updating", () => {
+    const text = { status: "additional", div: "<div>Interpreter required</div>" };
+    const original = { resourceType: "Patient", id: "p1", text, name: [{ family: "Smith" }] } as Patient;
+    expect(buildUpdatedPatient(original, valid).text).toEqual(text);
+  });
   it("keeps meta tags, security labels and profiles when updating", () => {
     const original: Patient = {
       resourceType: "Patient",
@@ -264,6 +269,7 @@ describe("medications", () => {
     expect(medicationName(other, known)).toBe("Other drug");
     expect(unresolvedRefs([other], new Map(), "https://x/fhir")).toEqual([]);
     expect(normalizeRef("https://x/fhir/Medication/m2/_history/1", "https://x/fhir/")).toBe("Medication/m2");
+    expect(normalizeRef("/Medication/m2")).toBe("Medication/m2");
   });
   it("finds the server base from entry.fullUrl", () => {
     expect(serverBase([{ fullUrl: "https://x/fhir/MedicationRequest/r1", resource: { resourceType: "MedicationRequest", id: "r1" } as never }])).toBe(
@@ -293,6 +299,21 @@ describe("proxy", () => {
     expect(filterDisallowed({ resourceType: "Patient", id: "5" })).toEqual({ resourceType: "Patient", id: "5" });
     expect(filterDisallowed({ error: "gateway" })).toEqual({ error: "gateway" });
     expect(filterDisallowed(null)).toBeNull();
+  });
+  it("removes contained resources of types outside the allowlist", () => {
+    const req = {
+      resourceType: "MedicationRequest",
+      contained: [
+        { resourceType: "Practitioner", id: "pr" },
+        { resourceType: "Medication", id: "m" },
+      ],
+    };
+    const single = filterDisallowed(structuredClone(req)) as typeof req;
+    expect(single.contained.map((c) => c.resourceType)).toEqual(["Medication"]);
+    const bundle = filterDisallowed({ resourceType: "Bundle", entry: [{ resource: structuredClone(req) }] }) as {
+      entry: { resource: typeof req }[];
+    };
+    expect(bundle.entry[0].resource.contained.map((c) => c.resourceType)).toEqual(["Medication"]);
   });
   it("builds upstream URLs only for allowed resources", () => {
     expect(buildUpstreamUrl("GET", base, ["Patient"], "?name:contains=smi")?.toString()).toBe(
@@ -334,6 +355,7 @@ describe("proxy", () => {
     expect(() => proxyUrl("http://hapi:8080/fhir/Patient")).toThrow(/cannot follow/);
     expect(proxyUrl("/api/fhir?_getpages=x")).toBe("/api/fhir?_getpages=x");
     expect(proxyUrl("/api/fhir/Patient/1")).toBe("/api/fhir/Patient/1");
+    expect(proxyUrl("?_getpages=x")).toBe("/api/fhir?_getpages=x");
     expect(proxyUrl("Patient?name=a")).toBe("/api/fhir/Patient?name=a");
   });
   it("rewrites paging links (http or https) to the proxy", () => {
