@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+Dockerfile
+.dockerignore
+*.md
+*.test.ts
+# Secrets are passed at runtime with --env-file, never baked into the image
+.env
+.env.*
+!.env.example
