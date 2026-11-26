@@ -76,7 +76,7 @@ Paging: the patient list loads 50 records per page as the user scrolls. Detail s
 [app/api/fhir/[[...path]]/route.ts](app/api/fhir/[[...path]]/route.ts) is the only code that talks to the FHIR server. Path policy and link rewriting live in [lib/server/proxy.ts](lib/server/proxy.ts), which imports `server-only`. The proxy:
 
 1. Reads `FHIR_BASE_URL` and `FHIR_TOKEN` at request time. If either is missing or invalid, it returns a 500 `OperationOutcome`.
-2. Validates the method and path (see below). Traversal-like segments, unknown resource types and overly deep paths are rejected.
+2. Validates the method, path and query (see below). Traversal-like segments, unknown resource types, overly deep paths and compartment searches are rejected, as are non-JSON `_format` values, `_has`, `_filter` and chained parameters, which would reveal data of blocked types.
 3. Adds `Authorization`, `Accept`, `Prefer` and `If-Match` where they apply.
 4. Forwards the request with a 30-second timeout.
 5. Rejects responses that are not JSON.

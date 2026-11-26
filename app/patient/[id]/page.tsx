@@ -15,6 +15,9 @@ import type { Patient } from "@/lib/fhir/types";
 import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
+/** A FHIR resource id. */
+const FHIR_ID = /^[A-Za-z0-9\-.]{1,64}$/;
+
 function age(birthDate?: string): string | undefined {
   if (!birthDate || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return undefined;
   const [y, m, d] = birthDate.split("-").map(Number);
@@ -31,6 +34,11 @@ export default function PatientDetailPage() {
   const { data: patient, loading, error, reload } = useAsync(
     async (signal) => {
       setNotFound(false);
+      // Not a FHIR id: never put it in searches, where "1,2" would mean patient 1 OR 2.
+      if (!FHIR_ID.test(id)) {
+        setNotFound(true);
+        throw new FhirError(`“${id}” is not a valid patient id.`, 404);
+      }
       try {
         return await fhirFetch<Patient>(`Patient/${encodeURIComponent(id)}`, { signal });
       } catch (e) {
@@ -116,7 +124,8 @@ export default function PatientDetailPage() {
         ) : null}
       </section>
 
-      {!notFound && (
+      {/* Only for a patient that was read successfully: the sections search by this id. */}
+      {patient && !notFound && (
         <>
           <VitalsSection patientId={id} />
           <ConditionsSection patientId={id} />

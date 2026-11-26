@@ -111,8 +111,10 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (!text) return new Response(null, { status: res.status, headers: outHeaders });
 
   if (json === undefined) {
-    // Upstream sent non-JSON (e.g. an HTML error page from a gateway). Don't forward it raw.
-    const snippet = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+    // Upstream sent non-JSON (e.g. an HTML error page from a gateway). Don't forward it raw. A
+    // snippet helps diagnose gateway errors, but a successful non-JSON answer is resource data
+    // that skipped the resource-type filter, so none of it is echoed.
+    const snippet = res.ok ? "" : text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
     return errorResponse(
       res.ok ? 502 : res.status,
       `FHIR server returned HTTP ${res.status} with a non-FHIR response${snippet ? `: ${snippet}` : "."}`,

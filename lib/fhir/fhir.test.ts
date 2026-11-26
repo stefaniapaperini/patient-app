@@ -339,6 +339,23 @@ describe("doses", () => {
 
 describe("proxy", () => {
   const base = new URL("https://fhir.example.com/fhir/TENANT");
+  it("refuses queries and paths that reveal other resource types", () => {
+    const get = (segments: string[], search: string) => buildUpstreamUrl("GET", base, segments, search);
+    // A non-JSON answer would skip the response filter.
+    expect(get(["Patient", "1"], "?_format=xml")).toBeNull();
+    expect(get(["Patient"], "?_format=ttl")).toBeNull();
+    expect(get(["Patient"], "?_format=json")).not.toBeNull();
+    // Compartment searches, reverse and forward chaining filter by other types' data.
+    expect(get(["Patient", "1", "Encounter"], "?_summary=count")).toBeNull();
+    expect(get(["Patient"], "?_has:Encounter:patient:reason-code=x")).toBeNull();
+    expect(get(["Patient"], "?general-practitioner.name=Smith")).toBeNull();
+    expect(get(["Patient"], "?_filter=name eq x")).toBeNull();
+    // What the app itself sends still works.
+    expect(get(["Patient", "1", "_history", "2"], "")).not.toBeNull();
+    expect(get(["MedicationRequest"], "?patient=1&_include=MedicationRequest:medication&_count=200")).not.toBeNull();
+    expect(get(["Patient"], "?_count=50&_sort=family,given&_total=accurate&name:contains=smi")).not.toBeNull();
+    expect(get([], "?_getpages=abc&_getpagesoffset=50&_count=50&_bundletype=searchset")).not.toBeNull();
+  });
   it("refuses cross-site writes", () => {
     const h = (o: Record<string, string>) => new Headers(o);
     const json = { "content-type": "application/fhir+json" };

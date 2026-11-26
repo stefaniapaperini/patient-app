@@ -78,6 +78,8 @@ function Console() {
   const [seq, setSeq] = useState(0);
   const [sending, setSending] = useState(false);
   const [inputError, setInputError] = useState<string>();
+  /** A write (POST/PUT) filled in from a link: any website can link here, so it is confirmed first. */
+  const [prefilledWrite, setPrefilledWrite] = useState(false);
 
   // Fill the form from links such as "Open in console" (?method=GET&url=...&body=...).
   const paramKey = params.toString();
@@ -85,7 +87,9 @@ function Console() {
     const u = params.get("url");
     if (u === null) return;
     const m = (params.get("method") ?? "GET").toUpperCase();
-    setMethod((METHODS as readonly string[]).includes(m) ? (m as Method) : "GET");
+    const allowed = (METHODS as readonly string[]).includes(m) ? (m as Method) : "GET";
+    setMethod(allowed);
+    setPrefilledWrite(allowed !== "GET");
     setUrl(cleanUrl(u));
     setBody(params.get("body") ?? "");
     setResult(undefined);
@@ -112,6 +116,13 @@ function Console() {
         setInputError(`The body is not valid JSON: ${(e as Error).message}`);
         return;
       }
+    }
+    if (!overrideUrl && prefilledWrite && m !== "GET") {
+      const ok = window.confirm(
+        `This ${m} request was filled in from a link and will change data on the FHIR server:\n\n${m} ${target}\n\nOnly send it if you wrote or checked it yourself. Send it?`,
+      );
+      if (!ok) return;
+      setPrefilledWrite(false);
     }
     if (!overrideUrl && /^[a-z][a-z0-9+.-]*:/i.test(target)) {
       setInputError("The console only sends requests through this app’s proxy. Enter a path such as Patient?_count=5.");

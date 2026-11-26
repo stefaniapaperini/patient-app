@@ -28,7 +28,13 @@ type View = "chart" | "table";
 const shortDate = (t: number) =>
   new Date(t).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
 
-const fmt = (v: number) => (Number.isInteger(v) ? String(v) : (Math.round(v * 10) / 10).toString());
+/** Axis ticks only: rounded to one decimal so the axis stays readable. */
+const fmtTick = (v: number) => (Number.isInteger(v) ? String(v) : (Math.round(v * 10) / 10).toString());
+/**
+ * Values shown to the reader (table, tooltip, Latest): as recorded. Unit conversion (lb -> kg)
+ * leaves float noise such as 72.57472, so converted values keep at most 4 significant decimals.
+ */
+const fmt = (v: number) => (Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4))));
 
 /** What the inspector needs to explain a vital: the query, the Observations by id, the patient. */
 interface InspectCtx {
@@ -130,9 +136,8 @@ function VitalChart({ def, readings, ctx }: { def: VitalDef; readings: VitalRead
 
   const latest = last
     ? def.series
-        .map((s) => last[s.key])
-        .filter((x) => x !== undefined)
-        .map(fmt)
+        // Every series has a place: a lone diastolic 80 reads "?/80", never "80" (which reads as systolic).
+        .map((s) => (last[s.key] !== undefined ? fmt(last[s.key]) : "?"))
         .join("/")
     : "";
 
@@ -214,7 +219,7 @@ function VitalChart({ def, readings, ctx }: { def: VitalDef; readings: VitalRead
                 tickLine={false}
                 axisLine={false}
                 width={44}
-                tickFormatter={fmt}
+                tickFormatter={fmtTick}
               />
               <Tooltip
                 cursor={{ stroke: "#9aa3ad", strokeDasharray: "3 3" }}

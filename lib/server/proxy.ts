@@ -51,6 +51,9 @@ export function readConfig(): FhirConfig {
  *   Without this, the server's token could be used to write Observations, Conditions, etc.
  * - The empty path is only allowed for reading HAPI paging links (GET ?_getpages=...): a POST or
  *   PUT to the server base would run a transaction/batch Bundle and bypass ALLOWED_RESOURCES.
+ * - Compartment searches (Patient/1/Encounter) are refused: they search another resource type.
+ * - The query may not reveal data of other resource types or escape the JSON checks: see
+ *   queryRefusal().
  */
 export function buildUpstreamUrl(method: string, base: URL, segments: string[], search: string): URL | null {
   const m = method.toUpperCase();
@@ -61,14 +64,39 @@ export function buildUpstreamUrl(method: string, base: URL, segments: string[], 
     if (!ALLOWED_RESOURCES.has(segments[0])) return null;
     if (segments.length > 4) return null;
     if (!segments.every((s) => SEGMENT.test(s) && s !== "." && s !== "..")) return null;
+    // Type/id/_history[/vid] only: a third segment other than _history is a compartment search.
+    if (segments.length >= 3 && segments[2] !== "_history") return null;
     if (m === "POST" && !(segments[0] === "Patient" && segments.length === 1)) return null;
     if (m === "PUT" && !(segments[0] === "Patient" && segments.length === 2 && !segments[1].startsWith("_"))) return null;
     if (m !== "GET" && m !== "POST" && m !== "PUT") return null;
   }
+  if (queryRefusal(search)) return null;
   const url = new URL(base.toString());
   url.pathname = [base.pathname.replace(/\/+$/, ""), ...segments.map(encodeURIComponent)].join("/");
   url.search = search;
   return url;
+}
+
+/** Formats the proxy accepts in _format: the JSON ones, which the response checks understand. */
+const JSON_FORMATS = new Set(["json", "application/json", "application/fhir+json"]);
+
+/**
+ * True if the query string must be refused:
+ * - `_format` other than JSON: an XML or Turtle answer would skip the resource-type filter on the
+ *   response (it only reads JSON), so blocked resources could come back as text.
+ * - `_has` (reverse chaining) and chained parameters (`subject.name`, `general-practitioner.name`):
+ *   they filter allowed resources by fields of other resource types, so the results reveal data
+ *   of types the allowlist blocks. `_filter` can express the same, so it is refused too.
+ */
+export function queryRefusal(search: string): boolean {
+  const params = new URLSearchParams(search);
+  for (const [name, value] of params) {
+    const base = name.split(":")[0];
+    if (base === "_format" && !JSON_FORMATS.has(value.trim().toLowerCase())) return true;
+    if (base === "_has" || base === "_filter") return true;
+    if (name.includes(".")) return true;
+  }
+  return false;
 }
 
 /**

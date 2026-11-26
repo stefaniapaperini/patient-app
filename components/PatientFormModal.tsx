@@ -69,8 +69,19 @@ export function PatientFormModal({
       let resource: Patient;
       let res: { body: Patient | undefined; location: string | undefined };
       if (isEdit) {
-        const version = patient!.meta?.versionId;
-        resource = { ...buildUpdatedPatient(patient!, values), id: patient!.id };
+        // The copy the form opened with may be old (the list shows search results). Read the patient
+        // again so fields others changed meanwhile (address, identifiers...) are kept, and stop if
+        // someone changed a field this form edits, rather than overwrite it.
+        const current = await fhirFetch<Patient>(`Patient/${encodeURIComponent(patient!.id!)}`);
+        if (JSON.stringify(patientToForm(current)) !== JSON.stringify(patientToForm(patient!))) {
+          setSaveError(
+            "Someone else changed this patient’s name, gender, birth date or phone since you opened the form. Close it and open it again to see their changes.",
+          );
+          setSaving(false);
+          return;
+        }
+        const version = current.meta?.versionId;
+        resource = { ...buildUpdatedPatient(current, values), id: patient!.id };
         res = await fhirRequest<Patient>(`Patient/${encodeURIComponent(patient!.id!)}`, {
           method: "PUT",
           json: resource,
