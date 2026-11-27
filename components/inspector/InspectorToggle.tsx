@@ -7,7 +7,7 @@ import { openPanel, setEnabled, useInspectorEnabled, useLogCount } from "@/lib/i
 /**
  * Header controls. The switch turns on "learning mode": with it off the header shows only the
  * switch, so the app looks like a plain patient app; with it on, the console and request log
- * links appear too. /console itself always works (bookmarks, Learn FHIR examples), and its link
+ * links appear too. /console itself always works (bookmarks, Learn examples), and its link
  * stays visible while you're on it.
  */
 export function InspectorToggle() {
@@ -29,7 +29,7 @@ export function InspectorToggle() {
       )}
       {enabled && (
         <button type="button" className="btn btn-sm" onClick={() => openPanel("learn")}>
-          Learn FHIR
+          Learn FHIR &amp; DICOM
         </button>
       )}
       <button

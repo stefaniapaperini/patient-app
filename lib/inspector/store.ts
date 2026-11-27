@@ -35,7 +35,10 @@ export interface InspectTarget {
   title: string;
   /** One line telling the user how this element relates to FHIR. */
   description?: string;
-  /** Requests (as passed to fhirFetch, e.g. "Condition?patient=1") whose results built this element. */
+  /**
+   * Requests whose results built this element: FHIR requests as passed to fhirFetch (e.g.
+   * "Condition?patient=1"), DICOMweb requests as proxy URLs ("/api/dicomweb/qido/studies?…").
+   */
   requests: string[];
   /** The resources behind the element. */
   resources?: Resource[];
@@ -43,6 +46,10 @@ export interface InspectTarget {
   highlight?: string[];
   /** Set on an empty vital-sign chart: lets the panel check whether data is missing or the query is wrong. */
   emptyVital?: { patientId: string; label: string; codes: string[] };
+  /** Imaging: DICOM JSON results behind the element (from QIDO-RS), each with a label. */
+  dicom?: { label: string; json: unknown }[];
+  /** Imaging: the image shown, as a WADO-RS rendered URL through the proxy. */
+  image?: { url: string; alt: string };
 }
 
 /**

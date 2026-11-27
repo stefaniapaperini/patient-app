@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { explainRequest, splitUrl, toCurl } from "@/lib/inspector/explain";
-import { SEARCH_SPEC, specUrl } from "@/lib/inspector/glossary";
+import { dicomDisplayUrl, explainDicomRequest, explainRequest, isDicomUrl, splitUrl, toCurl, toDicomCurl } from "@/lib/inspector/explain";
+import { DICOM_DICTIONARY, DICOM_PART18, dicomTagNotation, SEARCH_SPEC, specUrl } from "@/lib/inspector/glossary";
 import type { LogEntry } from "@/lib/inspector/store";
 import { JsonTree } from "./JsonTree";
 
@@ -21,8 +21,12 @@ export function statusText(e: Pick<LogEntry, "status" | "error">): string {
   return String(e.status);
 }
 
-/** "/api/fhir/Patient?x" -> "[base]/Patient?x", the notation the FHIR specification uses. */
+/**
+ * "/api/fhir/Patient?x" -> "[base]/Patient?x", the notation the FHIR specification uses;
+ * DICOMweb requests show their service: "[QIDO-RS]/studies?…".
+ */
 export function displayUrl(url: string): string {
+  if (isDicomUrl(url)) return dicomDisplayUrl(url);
   const { path, query } = splitUrl(url);
   let q = query;
   try {
@@ -34,6 +38,8 @@ export function displayUrl(url: string): string {
 }
 
 function summarizeBody(body: unknown): string | undefined {
+  // QIDO-RS answers with a list of DICOM JSON objects.
+  if (Array.isArray(body)) return `${body.length} result${body.length === 1 ? "" : "s"} (DICOM JSON)`;
   if (!body || typeof body !== "object") return undefined;
   const b = body as { resourceType?: string; total?: number; entry?: unknown[]; id?: string };
   if (b.resourceType === "Bundle") {
@@ -71,12 +77,14 @@ export function RequestCard({
   const first = entries[0];
   if (!first) return null;
   const current = entries[Math.min(page, entries.length - 1)];
+  const dicom = isDicomUrl(first.url);
   const ex = explainRequest(first.method, first.url);
+  const dx = dicom ? explainDicomRequest(first.url) : undefined;
   const totalMs = entries.reduce((s, e) => s + (e.durationMs ?? 0), 0);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(toCurl(current.method, current.url, current.requestBody));
+      await navigator.clipboard.writeText(dicom ? toDicomCurl(current.url) : toCurl(current.method, current.url, current.requestBody));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -95,7 +103,12 @@ export function RequestCard({
         {first.durationMs !== undefined && <span>{totalMs} ms</span>}
         {entries.length > 1 && <span>{entries.length} pages</span>}
         {summarizeBody(current.responseBody) && <span>{summarizeBody(current.responseBody)}</span>}
+        {dicom && current.status === 204 && <span>no match (204, empty body)</span>}
       </div>
+      {dx ? (
+        <DicomExplanation ex={dx} />
+      ) : (
+        <>
       <p className="req-what">
         <b>{ex.interaction}</b>
         {ex.resourceType && (
@@ -147,15 +160,23 @@ export function RequestCard({
           </div>
         </dl>
       )}
+        </>
+      )}
       {current.error && current.status !== 0 && <div className="req-error">{current.error}</div>}
       <div className="req-actions">
         <button type="button" className="btn btn-sm" onClick={() => setShowBody(!showBody)} aria-expanded={showBody}>
           {showBody ? "Hide response" : "Show response"}
         </button>
-        <button type="button" className="btn btn-sm" onClick={copy} title="curl command using $FHIR_BASE_URL and $FHIR_TOKEN from .env">
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={copy}
+          title={dicom ? "curl command using $DICOMWEB_QIDO_URL or $DICOMWEB_WADO_URL from .env" : "curl command using $FHIR_BASE_URL and $FHIR_TOKEN from .env"}
+        >
           {copied ? "Copied ✓" : "Copy as curl"}
         </button>
-        {showConsoleLink && (
+        {/* The console sends FHIR requests only. */}
+        {showConsoleLink && !dicom && (
           <Link className="btn btn-sm" href={consoleHref(current)}>
             Open in console
           </Link>
@@ -185,3 +206,96 @@ export function RequestCard({
     </div>
   );
 }
+
+/** What a DICOMweb request does: service, level, the UIDs in its path and each query parameter. */
+export function DicomExplanation({ ex }: { ex: ReturnType<typeof explainDicomRequest> }) {
+  return (
+    <>
+      <p className="req-what">
+        <b>{ex.service}</b>: {ex.interaction}.
+      </p>
+      {(ex.uids.length > 0 || ex.params.length > 0) && (
+        <dl className="req-params">
+          {ex.uids.map((u) => (
+            <div key={u.tag}>
+              <dt>
+                <code>{u.value}</code>
+              </dt>
+              <dd>
+                {u.label} UID, tag {dicomTagNotation(u.tag)}: the {u.label.toLowerCase()} is addressed by its globally unique
+                id in the path.
+              </dd>
+            </div>
+          ))}
+          {ex.params.map((p, i) => (
+            <div key={i}>
+              <dt>
+                <code>
+                  {p.name}={p.value.length > 60 ? p.value.slice(0, 60) + "…" : p.value}
+                </code>
+              </dt>
+              <dd>{p.text}</dd>
+            </div>
+          ))}
+          <div className="small muted">
+            More in the{" "}
+            <a href={DICOM_PART18} target="_blank" rel="noreferrer">
+              DICOMweb standard (Part 18)
+            </a>{" "}
+            and the{" "}
+            <a href={DICOM_DICTIONARY} target="_blank" rel="noreferrer">
+              tag dictionary
+            </a>
+            .
+          </div>
+        </dl>
+      )}
+    </>
+  );
+}
+
+/**
+ * A rendered image request, explained without a log entry: images are loaded by the browser
+ * (an <img>), not through the request log, so scrolling a long series doesn't flood it.
+ */
+export function ImageRequestCard({ url, alt }: { url: string; alt: string }) {
+  const [copied, setCopied] = useState(false);
+  const ex = explainDicomRequest(url);
+  return (
+    <div className="req">
+      <div className="req-line">
+        <span className="req-method">GET</span>
+        <code className="req-url">{dicomDisplayUrl(url)}</code>
+      </div>
+      <div className="req-meta">
+        <span>Accept: image/jpeg</span>
+        <span>loaded by the browser, not in the request log</span>
+      </div>
+      <DicomExplanation ex={ex} />
+      <div className="req-actions">
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(toDicomCurl(url));
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            } catch {
+              // clipboard blocked
+            }
+          }}
+          title="curl command using $DICOMWEB_WADO_URL from .env"
+        >
+          {copied ? "Copied ✓" : "Copy as curl"}
+        </button>
+      </div>
+      <div className="req-body">
+        <h4>Response: a JPEG image</h4>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="insp-image" src={url} alt={alt} />
+      </div>
+    </div>
+  );
+}
+

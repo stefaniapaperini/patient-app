@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { InspectButton, inspectable } from "./inspector/Inspect";
 import { Empty, ErrorBanner, Loading } from "./ui";
-import { renderedUrl, seriesOfStudy, slicesOfSeries, type Slice } from "@/lib/dicom/dicomweb";
+import {
+  instancesUrl,
+  renderedUrl,
+  seriesOfStudy,
+  seriesUrl,
+  slicesOfSeries,
+  type DicomSeries,
+  type Slice,
+} from "@/lib/dicom/dicomweb";
+import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 /** Images kept loading ahead and behind the current one, so stepping through them is smooth. */
@@ -47,13 +57,16 @@ export function DicomViewer({ studyUid, title, onClose }: { studyUid: string; ti
       ) : !current ? (
         <Empty>This study has no series on the DICOM server.</Empty>
       ) : (
-        <SeriesImages key={current.uid} studyUid={studyUid} seriesUid={current.uid} modality={current.modality} />
+        <SeriesImages key={current.uid} studyUid={studyUid} series={current} />
       )}
     </section>
   );
 }
 
-function SeriesImages({ studyUid, seriesUid, modality }: { studyUid: string; seriesUid: string; modality?: string }) {
+function SeriesImages({ studyUid, series }: { studyUid: string; series: DicomSeries }) {
+  const seriesUid = series.uid;
+  const modality = series.modality;
+  const inspecting = useInspectorEnabled();
   const slices = useAsync((signal) => slicesOfSeries(studyUid, seriesUid, signal), [studyUid, seriesUid]);
   const list = slices.data ?? [];
   const [index, setIndex] = useState(0);
@@ -94,11 +107,23 @@ function SeriesImages({ studyUid, seriesUid, modality }: { studyUid: string; ser
   if (count === 0 || !src) return <Empty>This series has no images.</Empty>;
 
   const label = `${modality ?? "Image"} ${at + 1} of ${count}`;
+  const target = (): InspectTarget => ({
+    title: `Image ${at + 1} of ${count}`,
+    description:
+      "The viewer asked the DICOM server for the study’s series, then for the series’ images (instances, at most 100 per request), all with QIDO-RS. Each image is then fetched with WADO-RS /rendered: the server converts it from DICOM to a JPEG the browser can show.",
+    requests: [seriesUrl(studyUid), instancesUrl(studyUid, seriesUid)],
+    dicom: [
+      { label: "This series", json: series.raw },
+      ...(slice.raw ? [{ label: slice.frame ? `This image (frame ${slice.frame} of the instance)` : "This image (instance)", json: slice.raw }] : []),
+    ],
+    image: { url: src, alt: label },
+  });
   return (
     <div className="viewer-body">
       <div
         className="viewer-frame"
         ref={frameRef}
+        {...inspectable(inspecting, target)}
         tabIndex={0}
         aria-label={`${label}. Use the arrow keys or the mouse wheel to change image.`}
         onKeyDown={(e) => {
@@ -142,9 +167,11 @@ function SeriesImages({ studyUid, seriesUid, modality }: { studyUid: string; ser
           <span className="small muted viewer-count">
             {at + 1} / {count}
           </span>
+          <InspectButton enabled={inspecting} target={target} label={label} />
         </div>
       )}
       <p className="small muted">
+        {count === 1 && <InspectButton enabled={inspecting} target={target} label={label} />}
         Rendered as JPEG by the DICOM server with its default contrast: for viewing and learning, not for diagnosis.
         {count > 1 && " Scroll with the mouse wheel or the arrow keys over the image."}
       </p>

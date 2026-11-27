@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CODE_SYSTEMS, codeMeaning, codeUrl, fieldDoc } from "@/lib/inspector/glossary";
+import { CODE_SYSTEMS, codeMeaning, codeUrl, dicomTagName, fieldDoc } from "@/lib/inspector/glossary";
 
 /** "component[0].code" -> "component[*].code", so highlights can name every array item at once. */
 const wild = (p: string) => p.replace(/\[\d+\]/g, "[*]");
@@ -87,10 +87,13 @@ function Node({
   const docPath = path.replace(/^entry\[\d+\]\.resource\.?/, "");
   const doc = typeof name === "string" ? fieldDoc(resourceType, docPath || name) : undefined;
 
+  // DICOM JSON keys are tag numbers ("0020000D"): show the tag's name next to it.
+  const tagName = typeof name === "string" && /^[0-9A-Fa-f]{8}$/.test(name) ? dicomTagName(name) : undefined;
   const label =
     name === undefined ? null : (
       <span className={`json-key${doc ? " has-doc" : ""}`} title={doc}>
         {typeof name === "number" ? `[${name}]` : name}
+        {tagName && <span className="json-tagname"> {tagName}</span>}
         {": "}
       </span>
     );

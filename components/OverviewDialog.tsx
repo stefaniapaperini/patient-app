@@ -54,7 +54,7 @@ function OverviewDialog({ onClose }: { onClose: () => void }) {
         </p>
         <p className="muted small">
           Switch on the <b>FHIR Inspector</b> in the header to see the FHIR requests and resources behind every
-          part of the page, and to open the request log, the console and Learn FHIR.
+          part of the page, and to open the request log, the console and Learn FHIR &amp; DICOM.
         </p>
 
         <div>

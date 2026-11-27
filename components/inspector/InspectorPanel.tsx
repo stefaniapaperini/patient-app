@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { qido } from "@/lib/dicom/dicomweb";
 import { errorMessage, fhirFetch, proxyUrl } from "@/lib/fhir/client";
+import { isDicomUrl } from "@/lib/inspector/explain";
 import type { Resource } from "@/lib/fhir/types";
 import { specUrl } from "@/lib/inspector/glossary";
 import {
@@ -17,13 +19,13 @@ import {
 } from "@/lib/inspector/store";
 import { JsonTree } from "./JsonTree";
 import { LearnTab } from "./LearnTab";
-import { displayUrl, RequestCard, statusClass, statusText } from "./RequestCard";
+import { displayUrl, ImageRequestCard, RequestCard, statusClass, statusText } from "./RequestCard";
 import { WhyEmpty } from "./WhyEmpty";
 
 const TITLES: Record<PanelView, string> = {
   element: "FHIR data",
   log: "Request log",
-  learn: "Learn FHIR",
+  learn: "Learn FHIR & DICOM",
 };
 
 /**
@@ -57,7 +59,9 @@ export function InspectorPanel() {
     <aside className="inspector" aria-labelledby="inspector-title">
       <div className="inspector-head">
         <div>
-          {view === "element" && <div className="inspector-kicker">FHIR data behind</div>}
+          {view === "element" && (
+            <div className="inspector-kicker">{target?.dicom || target?.image ? "FHIR and DICOM data behind" : "FHIR data behind"}</div>
+          )}
           <h2 id="inspector-title">{title}</h2>
         </div>
         <button type="button" className="icon-btn" aria-label={`Close ${TITLES[view].toLowerCase()}`} onClick={closePanel}>
@@ -103,7 +107,7 @@ function ElementTab({ target, log }: { target: InspectTarget | null; log: LogEnt
         <span>1</span> The request{target.requests.length > 1 ? "s" : ""} the app sent
       </h4>
       {target.requests.map((r) => {
-        const entries = entriesFor(log, proxyUrl(r));
+        const entries = entriesFor(log, requestKey(r));
         return entries.length ? (
           <RequestCard key={r} entries={entries} />
         ) : (
@@ -125,6 +129,34 @@ function ElementTab({ target, log }: { target: InspectTarget | null; log: LogEnt
           {target.resources.map((r, i) => (
             <ResourceBlock key={`${r.resourceType}/${r.id ?? i}`} resource={r} highlight={target.highlight} defaultOpen={i < 2} />
           ))}
+        </>
+      )}
+
+      {target.dicom && target.dicom.length > 0 && (
+        <>
+          <h4 className="insp-step">
+            <span>{target.resources?.length ? 3 : 2}</span> The DICOM data behind it
+          </h4>
+          <p className="small muted">
+            DICOM JSON from the DICOM server (QIDO-RS). Keys are DICOM tags: hover one for its name and meaning.
+          </p>
+          {target.dicom.map((d, i) => (
+            <div key={i} className="res-block">
+              <div className="res-head">
+                <code>{d.label}</code>
+              </div>
+              <JsonTree value={d.json} defaultDepth={2} />
+            </div>
+          ))}
+        </>
+      )}
+
+      {target.image && (
+        <>
+          <h4 className="insp-step">
+            <span>{1 + (target.resources?.length ? 1 : 0) + (target.dicom?.length ? 1 : 0) + 1}</span> The image request (WADO-RS)
+          </h4>
+          <ImageRequestCard url={target.image.url} alt={target.image.alt} />
         </>
       )}
 
@@ -153,14 +185,15 @@ function MissingRequest({ request }: { request: string }) {
   useEffect(() => {
     let cancelled = false;
     // Only the first page: the page itself may have loaded just that, and later pages are grouped under it in the log.
-    fhirFetch(request).catch((e) => !cancelled && setState({ kind: "error", message: errorMessage(e) }));
+    const replay = isDicomUrl(request) ? qido(request) : fhirFetch(request);
+    replay.catch((e) => !cancelled && setState({ kind: "error", message: errorMessage(e) }));
     return () => {
       cancelled = true;
     };
   }, [request]);
   return (
     <div className="req small muted">
-      <code>{displayUrl(proxyUrl(request))}</code>
+      <code>{displayUrl(requestKey(request))}</code>
       {state.kind === "loading" ? (
         <p>
           <span className="spinner" aria-hidden />
@@ -172,6 +205,11 @@ function MissingRequest({ request }: { request: string }) {
       )}
     </div>
   );
+}
+
+/** The URL a request is logged under: DICOMweb requests already are proxy URLs. */
+function requestKey(request: string): string {
+  return isDicomUrl(request) ? request : proxyUrl(request);
 }
 
 function ResourceBlock({ resource, highlight, defaultOpen }: { resource: Resource; highlight?: string[]; defaultOpen: boolean }) {
@@ -205,15 +243,15 @@ function LogTab({ log }: { log: LogEntry[] }) {
   return (
     <div>
       <p className="small muted">
-        Every request this page made to the FHIR server, newest first, like Postman’s history. Select one to see what each
-        parameter means and the full response.
+        Every request this page made to the FHIR server and, for imaging, to the DICOM server (QIDO-RS searches), newest
+        first, like Postman’s history. Select one to see what each parameter means and the full response.
       </p>
       <div className="toolbar" style={{ marginBottom: "0.6rem" }}>
         <input
           className="input"
           style={{ flex: 1 }}
           type="search"
-          placeholder="Filter: Patient, Observation, POST, 404…"
+          placeholder="Filter: Patient, Observation, dicomweb, POST, 404…"
           aria-label="Filter the request log"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}

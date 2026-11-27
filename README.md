@@ -119,16 +119,24 @@ The app has Postman-like tools built in, for checking the FHIR data behind the s
   On an empty vital-sign chart, **“Why is this empty?” → Check the server** fetches all of the
   patient’s Observations without the code filter and says whether the data is missing on the server
   or the query is the problem.
-- **Request log** (header button, while the inspector is on): every FHIR request made while the inspector
-  is on, newest first (nothing is recorded while it's off, and switching it off empties the log),
-  with the full response, **Copy as curl** and **Open in console**.
+- **Request log** (header button, while the inspector is on): every FHIR request, and every DICOMweb
+  search (QIDO-RS) of the imaging section, made while the inspector is on, newest first (nothing is
+  recorded while it's off, and switching it off empties the log), with the full response, **Copy as
+  curl** and, for FHIR requests, **Open in console**. DICOM JSON responses show each tag's name.
 - **FHIR Console** (`/console`, linked in the header while the inspector is on): send your own GET, POST or PUT requests through the proxy, with
   parameter suggestions, an explanation of the request before you send it, paging and examples.
-  The proxy rules still apply: it reads the five resource types above and only writes Patients.
-- **Learn FHIR** (header button, while the inspector is on): resources, references, codes, searching, writing and errors, with
-  examples that open in the console.
+  The proxy rules still apply: it reads the six resource types above and only writes Patients.
+- **Learn FHIR & DICOM** (header button, while the inspector is on): resources, references, codes, searching, writing and errors, with
+  examples that open in the console; then DICOM (studies, series, instances, UIDs and tags), DICOMweb
+  (QIDO-RS, WADO-RS, STOW-RS) and how FHIR ImagingStudy links to DICOM, with DICOMweb examples that
+  run through the proxy and open in the request log.
+- **Imaging in the inspector**: the imaging section, each study row and the viewer image can be
+  inspected. They show the FHIR ImagingStudy, the DICOMweb searches and their DICOM JSON, and for an
+  image its WADO-RS `/rendered` request. Images themselves are not added to the request log, so
+  scrolling through a long series doesn't push everything else out of it.
 
-“Copy as curl” never contains the token: it uses `$FHIR_BASE_URL` and `$FHIR_TOKEN`. Load them with
+“Copy as curl” never contains the token: it uses `$FHIR_BASE_URL` and `$FHIR_TOKEN` (and
+`$DICOMWEB_QIDO_URL` / `$DICOMWEB_WADO_URL` for DICOMweb requests). Load them with
 `set -a; source .env; set +a` before running the command in a terminal.
 
 ## License

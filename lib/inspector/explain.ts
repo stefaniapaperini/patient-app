@@ -1,5 +1,5 @@
 /** Turns a FHIR request URL into parts a person can read, and builds a curl command for it. */
-import { codeMeaning, MODIFIERS, PARAMS } from "./glossary";
+import { codeMeaning, DICOM_PARAMS, DICOM_TAGS, dicomTagNotation, MODIFIERS, PARAMS } from "./glossary";
 
 export interface ExplainedParam {
   /** As written in the URL, e.g. "name:contains". */
@@ -100,3 +100,98 @@ export function toCurl(method: string, url: string, body?: unknown): string {
   }
   return lines.join(" \\\n");
 }
+
+// --- DICOMweb ------------------------------------------------------------------------------
+
+const DICOM_PREFIX = "/api/dicomweb/";
+
+/** Is this a request to the app's DICOMweb proxy (rather than the FHIR proxy)? */
+export function isDicomUrl(url: string): boolean {
+  return url.startsWith(DICOM_PREFIX);
+}
+
+export interface ExplainedDicomRequest {
+  /** "QIDO-RS" (search) or "WADO-RS" (retrieve). */
+  service: "QIDO-RS" | "WADO-RS";
+  interaction: string;
+  /** The level searched or retrieved: studies, series, instances. */
+  level?: string;
+  uids: { label: string; tag: string; value: string }[];
+  params: ExplainedParam[];
+}
+
+/** "/api/dicomweb/qido/studies?x" -> { service: "qido", path: "studies", query: "x" } */
+function splitDicom(url: string): { service: string; path: string; query: string } {
+  const u = url.slice(DICOM_PREFIX.length);
+  const q = u.indexOf("?");
+  const rest = q < 0 ? u : u.slice(0, q);
+  const [service, ...path] = rest.split("/");
+  return { service, path: path.join("/"), query: q < 0 ? "" : u.slice(q + 1) };
+}
+
+/** "/api/dicomweb/qido/studies?x" -> "[QIDO-RS]/studies?x" (decoded, for reading). */
+export function dicomDisplayUrl(url: string): string {
+  const { service, path, query } = splitDicom(url);
+  let q = query;
+  try {
+    q = decodeURIComponent(query.replace(/\+/g, " "));
+  } catch {
+    // keep it encoded
+  }
+  return `[${service === "wado" ? "WADO-RS" : "QIDO-RS"}]/${path}${q ? "?" + q : ""}`;
+}
+
+export function explainDicomRequest(url: string): ExplainedDicomRequest {
+  const { service, path, query } = splitDicom(url);
+  const s = path.split("/");
+  const uids: ExplainedDicomRequest["uids"] = [];
+  if (s[1]) uids.push({ label: "Study", tag: "0020000D", value: s[1] });
+  if (s[3]) uids.push({ label: "Series", tag: "0020000E", value: s[3] });
+  if (s[5]) uids.push({ label: "Instance", tag: "00080018", value: s[5] });
+  const params: ExplainedParam[] = [];
+  for (const [name, value] of new URLSearchParams(query)) {
+    let text = DICOM_PARAMS[name] ?? `Query parameter “${name}”.`;
+    if (name === "includefield") {
+      const t = DICOM_TAGS[value.toUpperCase()];
+      text = t ? `Also return ${dicomTagNotation(value)} ${t.name}: ${t.text}` : `${text} Tag ${dicomTagNotation(value)}.`;
+    }
+    params.push({ name, base: name, value, text });
+  }
+  if (service === "wado") {
+    const frame = s[6] === "frames" ? s[7] : undefined;
+    return {
+      service: "WADO-RS",
+      interaction: frame
+        ? `Retrieve frame ${frame} of one image, rendered by the server as JPEG`
+        : "Retrieve one image, rendered by the server as JPEG (not the original DICOM file)",
+      level: "instance",
+      uids,
+      params,
+    };
+  }
+  const level = s[s.length - 1];
+  const scope = s.length === 1 ? "on the whole server" : s.length === 3 ? "of one study" : "of one series";
+  return {
+    service: "QIDO-RS",
+    interaction: `Search for ${level} ${scope}: returns a list of matches in DICOM JSON`,
+    level,
+    uids,
+    params,
+  };
+}
+
+/**
+ * A curl command for the same DICOMweb request, sent directly to the DICOM server. The browser
+ * doesn't know its address: the command uses $DICOMWEB_QIDO_URL / $DICOMWEB_WADO_URL from .env.
+ * The path and query are single-quoted, as in toCurl.
+ */
+export function toDicomCurl(url: string): string {
+  const { service, path, query } = splitDicom(url);
+  const variable = service === "wado" ? "$DICOMWEB_WADO_URL" : "$DICOMWEB_QIDO_URL";
+  const rest = `/${path}${query ? `?${query}` : ""}`;
+  const lines = [`curl "${variable}"${shellQuote(rest)}`];
+  if (service === "wado") lines.push(`  -H "Accept: image/jpeg" -o image.jpg`);
+  else lines.push(`  -H "Accept: application/dicom+json"`);
+  return lines.join(" \\\n");
+}
+

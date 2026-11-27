@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { SEARCH_SPEC, specUrl } from "@/lib/inspector/glossary";
+import { useState } from "react";
+import { patientStudiesUrl, qido, DICOMWEB_BASE } from "@/lib/dicom/dicomweb";
+import { DICOM_DICTIONARY, DICOM_PART18, DICOMWEB_SPEC, SEARCH_SPEC, specUrl } from "@/lib/inspector/glossary";
+import { getInspectorState, openPanel } from "@/lib/inspector/store";
 
 const tryIt = (url: string, method = "GET") => `/console?${new URLSearchParams({ method, url })}`;
 
@@ -13,7 +16,30 @@ function Try({ url, children }: { url: string; children: React.ReactNode }) {
   );
 }
 
-/** FHIR basics, in the order you meet them in this app, with examples to run in the console. */
+/**
+ * A DICOMweb example: the console only sends FHIR requests, so this runs the request through the
+ * app's DICOMweb proxy and opens it in the request log, with its explanation and response.
+ */
+function DicomTry({ url, children }: { url: string; children: React.ReactNode }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    await qido(url).catch(() => undefined); // errors are shown in the log entry
+    setBusy(false);
+    const entry = [...getInspectorState().log].reverse().find((e) => e.url === url);
+    openPanel("log", entry?.id ?? null);
+  };
+  return (
+    <li>
+      <button type="button" className="btn btn-link" onClick={run} disabled={busy}>
+        {children}
+      </button>{" "}
+      <code className="small">{url.replace(`${DICOMWEB_BASE}/qido`, "[QIDO-RS]")}</code>
+    </li>
+  );
+}
+
+/** FHIR and DICOM basics, in the order you meet them in this app, with examples to run. */
 export function LearnTab() {
   return (
     <div className="learn">
@@ -21,7 +47,7 @@ export function LearnTab() {
         <h3>1. Resources</h3>
         <p>
           FHIR stores health data as <b>resources</b>: small JSON documents of a fixed type, each with an <code>id</code>.
-          This app uses five types:
+          This app uses six types:
         </p>
         <ul>
           <li>
@@ -40,6 +66,10 @@ export function LearnTab() {
           <li>
             <a href={specUrl("Medication")} target="_blank" rel="noreferrer">Medication</a>: a medicine, when a
             prescription refers to it instead of naming it inline.
+          </li>
+          <li>
+            <a href={specUrl("ImagingStudy")} target="_blank" rel="noreferrer">ImagingStudy</a>: an imaging examination,
+            pointing to its DICOM images (see sections 7 to 9).
           </li>
         </ul>
       </section>
@@ -116,6 +146,121 @@ export function LearnTab() {
           <li><b>404</b> no such resource · <b>405</b> the server doesn’t support this (e.g. a disabled modifier)</li>
           <li><b>409/412</b> the resource changed since you read it · <b>5xx</b> a server problem</li>
         </ul>
+      </section>
+
+      <section>
+        <h3>7. DICOM: medical images and their data</h3>
+        <p>
+          <b>DICOM</b> is the standard for medical images, both a file format and a network protocol. Every CT slice, MR
+          image or X-ray is a DICOM <b>instance</b>: the pixels plus a header of <b>tags</b> describing them.
+        </p>
+        <p>Images are organised in four levels, each with its own unique id (UID):</p>
+        <ul>
+          <li><b>Patient</b>: identified by <code>PatientID</code> at the hospital that made the images.</li>
+          <li>
+            <b>Study</b>: one examination, such as “CT abdomen” on one day. Its <code>StudyInstanceUID</code> is what
+            FHIR refers to.
+          </li>
+          <li><b>Series</b>: one acquisition within the study, e.g. the axial slices. <code>SeriesInstanceUID</code>.</li>
+          <li>
+            <b>Instance</b>: one image (some hold several <b>frames</b>, like a short film). <code>SOPInstanceUID</code>.
+          </li>
+        </ul>
+        <p>
+          A UID is digits and dots, at most 64 characters, unique worldwide, e.g. <code>1.2.826.0.1.3680043.…</code>: the
+          first part belongs to the organisation that created it.
+        </p>
+        <p>
+          Each tag has a number written <code>(group,element)</code>, a keyword and a data type (VR):{" "}
+          <code>(0010,0010)</code> PatientName is a person name (PN), <code>(0020,000D)</code> StudyInstanceUID a unique
+          id (UI), <code>(0008,0060)</code> Modality a code (CS) such as CT, MR or MG. In <b>DICOM JSON</b>, as DICOMweb
+          returns them, the key is the tag without punctuation:
+        </p>
+        <pre className="small learn-code">{`"0020000D": { "vr": "UI", "Value": ["1.2.826.0.1…"] }`}</pre>
+        <p className="small">
+          All tags are in the{" "}
+          <a href={DICOM_DICTIONARY} target="_blank" rel="noreferrer">
+            DICOM data dictionary
+          </a>
+          . In the inspector, hover a tag number for its name and meaning.
+        </p>
+      </section>
+
+      <section>
+        <h3>8. DICOMweb: DICOM over the web</h3>
+        <p>
+          <b>DICOMweb</b> makes DICOM available as a RESTful API over HTTP, like FHIR: data has URLs, you read it with
+          GET, and the <code>Accept</code> header chooses the format. It has three main services:
+        </p>
+        <ul>
+          <li>
+            <b>QIDO-RS</b> (query): search. <code>GET …/studies?PatientID=…</code>, <code>…/studies/{"{study}"}/series</code>,{" "}
+            <code>…/series/{"{series}"}/instances</code>. The answer is a list in DICOM JSON, or HTTP 204 (empty) when
+            nothing matches. <code>includefield</code> asks for more tags; <code>limit</code> and <code>offset</code> page
+            through long lists.
+          </li>
+          <li>
+            <b>WADO-RS</b> (retrieve): get the data. <code>…/instances/{"{instance}"}</code> returns the original DICOM
+            file, <code>…/metadata</code> only the tags, and <code>…/rendered</code> an ordinary JPEG or PNG made by the
+            server. This viewer uses <code>/rendered</code>, so the browser never has to decode DICOM, at the cost of the
+            server’s default contrast.
+          </li>
+          <li>
+            <b>STOW-RS</b> (store): upload with POST. The app doesn’t use it: it only reads, and on the public test server
+            anything uploaded is visible to everyone.
+          </li>
+        </ul>
+        <p>
+          Unlike FHIR, DICOMweb has no resource types: everything is addressed by the study, series and instance UIDs.
+          See the{" "}
+          <a href={DICOMWEB_SPEC} target="_blank" rel="noreferrer">
+            DICOMweb overview
+          </a>{" "}
+          and the{" "}
+          <a href={DICOM_PART18} target="_blank" rel="noreferrer">
+            standard (Part 18)
+          </a>
+          .
+        </p>
+        <p className="small">Run these through the app’s proxy; each opens in the request log:</p>
+        <ul className="small">
+          <DicomTry url={`${DICOMWEB_BASE}/qido/studies?limit=3`}>Three studies, with the server’s default tags (almost none)</DicomTry>
+          <DicomTry url={`${DICOMWEB_BASE}/qido/studies?limit=5&includefield=0020000D&includefield=00100020&includefield=00080061&includefield=00080020`}>
+            Five studies with UID, patient, modalities and date
+          </DicomTry>
+          <DicomTry url={patientStudiesUrl("MC_EXAMPLE_1")}>The studies of example patient MC_EXAMPLE_1</DicomTry>
+          <DicomTry url={`${DICOMWEB_BASE}/qido/studies?StudyInstanceUID=1.2.3.4.5`}>A study that doesn’t exist (204, no body)</DicomTry>
+          <DicomTry url={`${DICOMWEB_BASE}/qido/studies?PatientName=Smith`}>A search the app’s proxy doesn’t allow (403)</DicomTry>
+        </ul>
+      </section>
+
+      <section>
+        <h3>9. FHIR meets DICOM</h3>
+        <p>
+          In a hospital, images live in a <b>PACS</b> (the image archive, often with a DICOMweb interface), while the
+          health record (FHIR) describes them with{" "}
+          <a href={specUrl("ImagingStudy")} target="_blank" rel="noreferrer">
+            ImagingStudy
+          </a>
+          :
+        </p>
+        <ul>
+          <li>
+            <code>identifier</code> holds the StudyInstanceUID: system <code>urn:dicom:uid</code>, value{" "}
+            <code>urn:oid:1.2.3…</code>.
+          </li>
+          <li>
+            <code>series[].uid</code> and <code>series[].instance[].uid</code> are the series and image UIDs;{" "}
+            <code>modality</code> uses DICOM codes (CT, MR, DX…).
+          </li>
+          <li><code>endpoint</code> can say where the images are, e.g. a DICOMweb server.</li>
+        </ul>
+        <p>
+          This app follows that path: FHIR <code>ImagingStudy?patient=…</code> → the StudyInstanceUID → a QIDO-RS search
+          on the DICOM server → WADO-RS <code>/rendered</code> images. The Synthea test data invents its UIDs, so the
+          search finds nothing (204) and those studies show “Not available”. The demo images come from example patients
+          linked in <code>.env</code> (<code>DICOM_DEMO_PATIENTS</code>), and are labelled as another person’s images.
+        </p>
       </section>
     </div>
   );

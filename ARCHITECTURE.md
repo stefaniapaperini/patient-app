@@ -102,6 +102,8 @@ Optional: enabled by `DICOMWEB_QIDO_URL` (and `DICOMWEB_WADO_URL` for servers wi
 - [lib/dicom/dicomweb.ts](lib/dicom/dicomweb.ts) reads DICOM JSON and builds proxy URLs.
 - [app/api/dicomweb/[[...path]]/route.ts](app/api/dicomweb/[[...path]]/route.ts) with [lib/server/dicomweb.ts](lib/server/dicomweb.ts) is a read-only proxy: GET only; `qido/studies`, `…/series`, `…/instances` with the parameters `PatientID` (no wildcards), `StudyInstanceUID`, `includefield`, `limit` and `offset`; and `wado/…/instances/{uid}[/frames/{n}]/rendered` returning only JPEG or PNG. Uploads (STOW-RS), raw DICOM and anything else get 403. Rendered images are cached by the browser for a day, as they are addressed by UID and never change.
 
+QIDO-RS searches go through `qido()`, which records them in the FHIR Inspector's request log like FHIR requests (paged instance lists share a group). Rendered images are loaded by `<img>` and are not logged; an inspected image explains its WADO-RS request instead. The inspector shows DICOM JSON with tag names from the glossary ([lib/inspector/glossary.ts](lib/inspector/glossary.ts)), and Learn FHIR & DICOM runs DICOMweb examples through the proxy.
+
 Sending StudyInstanceUIDs and demo patient IDs to a public DICOM server is acceptable for synthetic data only.
 
 ## Write flow

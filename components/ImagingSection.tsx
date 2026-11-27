@@ -2,11 +2,21 @@
 
 import { useState } from "react";
 import { DicomViewer } from "./DicomViewer";
+import { InspectButton, inspectable } from "./inspector/Inspect";
 import { Empty, ErrorBanner, Loading } from "./ui";
 import { fetchAllPages, matches } from "@/lib/fhir/client";
 import { formatDate } from "@/lib/fhir/format";
 import type { ImagingStudy } from "@/lib/fhir/types";
-import { findStudy, imagingConfig, studiesOfPatient, studyUidOf, type DicomStudy } from "@/lib/dicom/dicomweb";
+import {
+  findStudy,
+  imagingConfig,
+  patientStudiesUrl,
+  studiesOfPatient,
+  studyLookupUrl,
+  studyUidOf,
+  type DicomStudy,
+} from "@/lib/dicom/dicomweb";
+import { useInspectorEnabled, type InspectTarget } from "@/lib/inspector/store";
 import { useAsync } from "@/lib/useAsync";
 
 /** At most this many DICOM lookups at once (one per FHIR ImagingStudy). */
@@ -32,6 +42,7 @@ interface Row {
 export function ImagingSection({ patientId }: { patientId: string }) {
   const query = `ImagingStudy?${new URLSearchParams({ patient: patientId, _count: "200" })}`;
   const [open, setOpen] = useState<{ uid: string; title: string }>();
+  const inspecting = useInspectorEnabled();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
       const config = await imagingConfig(signal);
@@ -75,12 +86,44 @@ export function ImagingSection({ patientId }: { patientId: string }) {
   if (data && !data.enabled) return null;
 
   const view = (uid: string, title: string) => setOpen(open?.uid === uid ? undefined : { uid, title });
+  const demoPatient = data?.enabled ? data.demoPatient : undefined;
+
+  const sectionTarget = (): InspectTarget => ({
+    title: "Imaging section",
+    description:
+      "Two servers work together here. First a FHIR search for the patient’s ImagingStudy resources; each names a DICOM StudyInstanceUID in its identifier. Then, for each one, a DICOMweb search (QIDO-RS) on the DICOM server for that UID: only studies found there have images to show." +
+      (demoPatient ? ` This patient is also linked to the example DICOM patient ${demoPatient} (DICOM_DEMO_PATIENTS in .env), searched by PatientID.` : ""),
+    requests: [query, ...(demoPatient ? [patientStudiesUrl(demoPatient)] : [])],
+  });
+  const fhirRowTarget = (r: Row, title: string) => (): InspectTarget => ({
+    title: `Imaging study: ${title}`,
+    description: !r.uid
+      ? "This row is a FHIR ImagingStudy. Its identifier has no DICOM StudyInstanceUID (urn:oid:…), so it cannot be looked up on the DICOM server."
+      : r.dicom
+        ? "This row is a FHIR ImagingStudy. Its identifier holds the DICOM StudyInstanceUID; the app searched the DICOM server for it (QIDO-RS) and found the study, so its images can be viewed."
+        : r.checkFailed
+          ? "This row is a FHIR ImagingStudy. The DICOM server could not be reached to look up its StudyInstanceUID."
+          : "This row is a FHIR ImagingStudy. Its identifier holds the DICOM StudyInstanceUID; the app searched the DICOM server for it (QIDO-RS) and got no match (HTTP 204), so the images are not there. Synthea, which generated this data, invents these UIDs: their images exist nowhere.",
+    requests: [query, ...(r.uid ? [studyLookupUrl(r.uid)] : [])],
+    resources: [r.fhir],
+    highlight: ["identifier", "started", "modality", "description", "procedureCode", "numberOfInstances", "series[*].modality", "series[*].bodySite"],
+    dicom: r.dicom ? [{ label: "The study on the DICOM server", json: r.dicom.raw }] : undefined,
+  });
+  const demoRowTarget = (s: DicomStudy) => (): InspectTarget => ({
+    title: `Demo study: ${s.description || s.modalities.join(", ") || "study"}`,
+    description: `Not from FHIR: this patient is linked to the example DICOM patient ${demoPatient} in .env (DICOM_DEMO_PATIENTS), so the app searched the DICOM server by PatientID (QIDO-RS). This row is one study of the result: the images belong to that anonymous example patient, not to this one.`,
+    requests: demoPatient ? [patientStudiesUrl(demoPatient)] : [],
+    dicom: [{ label: "The study on the DICOM server", json: s.raw }],
+  });
   const anyFailed = data?.enabled && data.rows.some((r) => r.checkFailed);
 
   return (
     <section className="card" aria-labelledby="img-h">
       <div className="card-header">
-        <h2 id="img-h">Imaging</h2>
+        <h2 id="img-h">
+          Imaging
+          <InspectButton enabled={inspecting} label="the imaging studies" target={sectionTarget} />
+        </h2>
       </div>
       {loading && !data ? (
         <Loading label="Loading imaging studies…" />
@@ -112,9 +155,13 @@ export function ImagingSection({ patientId }: { patientId: string }) {
                 <tbody>
                   {data.rows.map((r, i) => {
                     const title = fhirTitle(r.fhir);
+                    const target = fhirRowTarget(r, title);
                     return (
-                      <tr key={r.fhir.id ?? i}>
-                        <td className="num">{formatDate(r.fhir.started)}</td>
+                      <tr key={r.fhir.id ?? i} {...inspectable(inspecting, target)}>
+                        <td className="num">
+                          {formatDate(r.fhir.started)}
+                          <InspectButton enabled={inspecting} target={target} label={title} />
+                        </td>
                         <td>{fhirModalities(r.fhir)}</td>
                         <td className="wrap">{title}</td>
                         <td className="num">{r.fhir.numberOfInstances ?? "—"}</td>
@@ -171,8 +218,11 @@ export function ImagingSection({ patientId }: { patientId: string }) {
                       {data.demo.map((s) => {
                         const title = `Demo: ${s.description || s.modalities.join(", ") || "study"} (${data.demoPatient})`;
                         return (
-                          <tr key={s.uid}>
-                            <td className="num">{formatDate(s.date)}</td>
+                          <tr key={s.uid} {...inspectable(inspecting, demoRowTarget(s))}>
+                            <td className="num">
+                              {formatDate(s.date)}
+                              <InspectButton enabled={inspecting} target={demoRowTarget(s)} label={title} />
+                            </td>
                             <td>{s.modalities.join(", ") || "—"}</td>
                             <td className="wrap">{s.description || "—"}</td>
                             <td className="num">{s.instanceCount ?? "—"}</td>

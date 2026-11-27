@@ -175,6 +175,24 @@ const FIELDS: Record<string, string> = {
   "entry.resource": "The resource itself.",
   "entry.search": "Why the resource is in the results.",
   "entry.search.mode": "match: it matched the search. include: added by _include.",
+  "ImagingStudy.identifier": "Identifiers of the study. The DICOM StudyInstanceUID is here, as urn:oid:1.2.3… (system urn:dicom:uid); the app looks it up on the DICOM server.",
+  "ImagingStudy.status": "Status of the study: registered, available, cancelled…",
+  "ImagingStudy.started": "When the study started.",
+  "ImagingStudy.modality": "The kinds of equipment used, as DICOM modality codes: CT, MR, DX (X-ray)…",
+  "ImagingStudy.numberOfSeries": "How many series (sets of images) the study has.",
+  "ImagingStudy.numberOfInstances": "How many images (DICOM instances) the study has.",
+  "ImagingStudy.procedureCode": "The procedure that was performed, as codes.",
+  "ImagingStudy.endpoint": "Where the images can be retrieved, e.g. a DICOMweb server. Empty here: the app uses the server set in .env.",
+  "ImagingStudy.series": "The series of the study: each a set of images from one acquisition.",
+  "series.uid": "The DICOM SeriesInstanceUID.",
+  "series.modality": "The modality of this series, e.g. CT.",
+  "series.bodySite": "The part of the body imaged.",
+  "series.numberOfInstances": "How many images this series has.",
+  "series.instance": "The images (DICOM instances) of the series.",
+  "series.instance.uid": "The DICOM SOPInstanceUID of one image.",
+  vr: "DICOM Value Representation: the data type of this tag, e.g. UI (unique identifier), DA (date), PN (person name), CS (code), IS (integer).",
+  Value: "The tag's values. DICOM JSON always uses a list, even for one value.",
+  Alphabetic: "A person name in its alphabetic form: Family^Given^Middle.",
   "OperationOutcome.issue": "Problems the server reports: severity, kind and a message.",
   "issue.diagnostics": "The server’s message, meant for developers.",
 };
@@ -187,6 +205,12 @@ export function normalizePath(path: string): string {
 /** Explanation for a field of a resource, or undefined if the glossary has none. */
 export function fieldDoc(resourceType: string | undefined, path: string): string | undefined {
   const parts = normalizePath(path).split(".");
+  // DICOM JSON: keys are tags such as "0020000D".
+  const last = parts[parts.length - 1];
+  if (/^[0-9A-Fa-f]{8}$/.test(last)) {
+    const t = DICOM_TAGS[last.toUpperCase()];
+    return t ? `${dicomTagNotation(last)} ${t.name}: ${t.text}` : `DICOM tag ${dicomTagNotation(last)}.`;
+  }
   // "Type.field" entries describe top-level fields only, so they are tried for the full path
   // alone: Patient.contact[0].name is the contact's name, not "Patient.name". Generic entries are
   // then tried on shorter suffixes: "name.given", "given".
@@ -202,3 +226,54 @@ export function fieldDoc(resourceType: string | undefined, path: string): string
 export function codeMeaning(code: string): string | undefined {
   return CODES[code];
 }
+
+// --- DICOM and DICOMweb ---------------------------------------------------------------------
+
+export const DICOMWEB_SPEC = "https://www.dicomstandard.org/using/dicomweb";
+export const DICOM_PART18 = "https://dicom.nema.org/medical/dicom/current/output/html/part18.html";
+export const DICOM_DICTIONARY = "https://dicom.nema.org/medical/dicom/current/output/chtml/part06/chapter_6.html";
+
+/** DICOM tags the app uses, keyed as in DICOM JSON ("0020000D"), with keyword and explanation. */
+export const DICOM_TAGS: Record<string, { name: string; text: string }> = {
+  "00080005": { name: "SpecificCharacterSet", text: "The character set of the text values." },
+  "00080018": { name: "SOPInstanceUID", text: "Unique id of one image (instance). With the study and series UIDs it addresses the image in WADO-RS." },
+  "00080020": { name: "StudyDate", text: "The date the study started, as YYYYMMDD." },
+  "00080052": { name: "QueryRetrieveLevel", text: "The level this result is at: STUDY, SERIES or IMAGE." },
+  "00080054": { name: "RetrieveAETitle", text: "The DICOM network name (AE title) of the server holding the data." },
+  "00080060": { name: "Modality", text: "The kind of equipment that made the series: CT, MR, MG (mammography), DX (X-ray), US (ultrasound)…" },
+  "00080061": { name: "ModalitiesInStudy", text: "All modalities of the study's series." },
+  "00081030": { name: "StudyDescription", text: "Free-text description of the study, from the imaging department." },
+  "0008103E": { name: "SeriesDescription", text: "Free-text description of the series." },
+  "00100010": { name: "PatientName", text: "The patient's name. On this public server the examples are anonymised." },
+  "00100020": { name: "PatientID", text: "The patient's id at the hospital that made the images. QIDO-RS can search by it." },
+  "00100030": { name: "PatientBirthDate", text: "Date of birth, as YYYYMMDD." },
+  "0020000D": { name: "StudyInstanceUID", text: "Globally unique id of the study. FHIR ImagingStudy.identifier holds the same value (urn:oid:…)." },
+  "0020000E": { name: "SeriesInstanceUID", text: "Globally unique id of the series." },
+  "00200011": { name: "SeriesNumber", text: "The series' number within the study." },
+  "00200013": { name: "InstanceNumber", text: "The image's number within the series: the viewer shows images in this order." },
+  "00201206": { name: "NumberOfStudyRelatedSeries", text: "How many series the study has." },
+  "00201208": { name: "NumberOfStudyRelatedInstances", text: "How many images the study has." },
+  "00201209": { name: "NumberOfSeriesRelatedInstances", text: "How many images the series has." },
+  "00280008": { name: "NumberOfFrames", text: "Frames in this instance: more than 1 for multi-frame images (e.g. a cine loop), shown frame by frame." },
+};
+
+/** "0020000D" -> "StudyInstanceUID" (or undefined for tags the glossary doesn't know). */
+export function dicomTagName(tag: string): string | undefined {
+  return DICOM_TAGS[tag.toUpperCase()]?.name;
+}
+
+/** "0020000D" -> "(0020,000D)", the notation of the DICOM standard. */
+export function dicomTagNotation(tag: string): string {
+  const t = tag.toUpperCase();
+  return `(${t.slice(0, 4)},${t.slice(4)})`;
+}
+
+/** QIDO-RS query parameters the app sends. */
+export const DICOM_PARAMS: Record<string, string> = {
+  PatientID: "Only studies of the patient with this DICOM PatientID (0010,0020). The app sends it for demo-linked patients.",
+  StudyInstanceUID: "Only the study with this UID (0020,000D): how the app checks whether a FHIR ImagingStudy's images are on the server.",
+  includefield: "Also return this tag in the results. Without it, a server returns only its default set of tags (this one returns almost none).",
+  limit: "At most this many results. This server never returns more than 100 at once.",
+  offset: "Skip this many results: with limit, it pages through long lists (e.g. a series of 116 images).",
+};
+

@@ -4,6 +4,7 @@
  * ("0020000D") with { vr, Value: [...] }.
  */
 import type { ImagingStudy } from "../fhir/types";
+import { recordRequest } from "../inspector/store";
 
 export const DICOMWEB_BASE = "/api/dicomweb";
 
@@ -64,19 +65,50 @@ async function errorText(res: Response): Promise<string> {
   return body?.error ?? `The imaging service returned HTTP ${res.status}.`;
 }
 
-/** A QIDO-RS search through the proxy. "No match" (204) is an empty list. */
-export async function qido(path: string, signal?: AbortSignal): Promise<DicomJson[]> {
-  const res = await fetch(`${DICOMWEB_BASE}/qido/${path}`, { signal, headers: { Accept: "application/dicom+json" } });
-  if (res.status === 204) return [];
-  if (!res.ok) throw new Error(await errorText(res));
-  const body = await res.json();
+/**
+ * A QIDO-RS search through the proxy; `url` is a proxy URL from one of the builders below.
+ * "No match" (204) is an empty list. Like FHIR requests, it is recorded in the FHIR Inspector's
+ * request log while the inspector is on; `group` ties the pages of one long list together.
+ */
+export async function qido(url: string, signal?: AbortSignal, group?: string): Promise<DicomJson[]> {
+  const done = recordRequest({ method: "GET", url, group: group ?? url });
+  let res: Response;
+  try {
+    res = await fetch(url, { signal, headers: { Accept: "application/dicom+json" } });
+  } catch (e) {
+    const aborted = e instanceof DOMException && e.name === "AbortError";
+    done({ status: 0, error: aborted ? "Cancelled (the page no longer needed this request)." : "Network error: could not reach the app server." });
+    throw e;
+  }
+  if (res.status === 204) {
+    done({ status: 204 });
+    return [];
+  }
+  if (!res.ok) {
+    const message = await errorText(res);
+    done({ status: res.status, error: message });
+    throw new Error(message);
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch (e) {
+    done({ status: res.status, error: "The response could not be read." });
+    throw e;
+  }
+  done({ status: res.status, responseBody: body });
   return Array.isArray(body) ? (body as DicomJson[]) : [];
 }
 
 const fields = (...tags: string[]) => tags.map((t) => `includefield=${t}`).join("&");
 
+/** The server returns at most this many results per QIDO request. */
+const QIDO_PAGE = 100;
+
 export interface DicomStudy {
   uid: string;
+  /** The QIDO-RS result as returned (DICOM JSON), for the inspector. */
+  raw: DicomJson;
   patientId?: string;
   date?: string;
   description?: string;
@@ -100,6 +132,7 @@ export function toStudy(o: DicomJson): DicomStudy | undefined {
   if (!uid) return undefined;
   return {
     uid,
+    raw: o,
     patientId: tagText(o, TAG.PatientID),
     date: dicomDate(tagText(o, TAG.StudyDate)),
     description: tagText(o, TAG.StudyDescription),
@@ -109,15 +142,27 @@ export function toStudy(o: DicomJson): DicomStudy | undefined {
   };
 }
 
+/** QIDO-RS: the study with this StudyInstanceUID. */
+export const studyLookupUrl = (uid: string) => `${DICOMWEB_BASE}/qido/studies?StudyInstanceUID=${encodeURIComponent(uid)}&${STUDY_FIELDS}`;
+/** QIDO-RS: all studies of one DICOM patient. */
+export const patientStudiesUrl = (dicomPatientId: string) =>
+  `${DICOMWEB_BASE}/qido/studies?PatientID=${encodeURIComponent(dicomPatientId)}&${STUDY_FIELDS}`;
+/** QIDO-RS: the series of a study. */
+export const seriesUrl = (studyUid: string) =>
+  `${DICOMWEB_BASE}/qido/studies/${studyUid}/series?${fields(TAG.SeriesInstanceUID, TAG.SeriesNumber, TAG.Modality, TAG.SeriesDescription, TAG.NumberOfSeriesRelatedInstances)}`;
+/** QIDO-RS: one page of the instances (images) of a series. */
+export const instancesUrl = (studyUid: string, seriesUid: string, offset = 0) =>
+  `${DICOMWEB_BASE}/qido/studies/${studyUid}/series/${seriesUid}/instances?limit=${QIDO_PAGE}&offset=${offset}&${fields(TAG.SOPInstanceUID, TAG.InstanceNumber, TAG.NumberOfFrames)}`;
+
 /** The study with this StudyInstanceUID on the DICOM server, or undefined if it isn't there. */
 export async function findStudy(uid: string, signal?: AbortSignal): Promise<DicomStudy | undefined> {
-  const found = await qido(`studies?StudyInstanceUID=${encodeURIComponent(uid)}&${STUDY_FIELDS}`, signal);
+  const found = await qido(studyLookupUrl(uid), signal);
   return found.map(toStudy).find((s) => s?.uid === uid);
 }
 
 /** The studies of one DICOM patient, newest first. */
 export async function studiesOfPatient(dicomPatientId: string, signal?: AbortSignal): Promise<DicomStudy[]> {
-  const found = await qido(`studies?PatientID=${encodeURIComponent(dicomPatientId)}&${STUDY_FIELDS}`, signal);
+  const found = await qido(patientStudiesUrl(dicomPatientId), signal);
   return found
     .map(toStudy)
     .filter((s): s is DicomStudy => !!s && s.patientId === dicomPatientId)
@@ -126,6 +171,8 @@ export async function studiesOfPatient(dicomPatientId: string, signal?: AbortSig
 
 export interface DicomSeries {
   uid: string;
+  /** The QIDO-RS result as returned (DICOM JSON), for the inspector. */
+  raw: DicomJson;
   number?: number;
   modality?: string;
   description?: string;
@@ -133,12 +180,10 @@ export interface DicomSeries {
 }
 
 export async function seriesOfStudy(studyUid: string, signal?: AbortSignal): Promise<DicomSeries[]> {
-  const found = await qido(
-    `studies/${studyUid}/series?${fields(TAG.SeriesInstanceUID, TAG.SeriesNumber, TAG.Modality, TAG.SeriesDescription, TAG.NumberOfSeriesRelatedInstances)}`,
-    signal,
-  );
+  const found = await qido(seriesUrl(studyUid), signal);
   return found
     .map((o) => ({
+      raw: o,
       uid: tagText(o, TAG.SeriesInstanceUID) ?? "",
       number: tagNumber(o, TAG.SeriesNumber),
       modality: tagText(o, TAG.Modality),
@@ -152,23 +197,21 @@ export async function seriesOfStudy(studyUid: string, signal?: AbortSignal): Pro
 /** One image to show: an instance, or one frame of a multi-frame instance. */
 export interface Slice {
   sop: string;
+  /** The instance's QIDO-RS result (DICOM JSON), for the inspector. */
+  raw?: DicomJson;
   instanceNumber?: number;
   /** 1-based frame number, only for multi-frame instances. */
   frame?: number;
 }
 
-/** The server returns at most this many results per QIDO request. */
-const QIDO_PAGE = 100;
 const MAX_INSTANCES = 2000;
 
 /** All images of a series, in instance order, expanding multi-frame instances into frames. */
 export async function slicesOfSeries(studyUid: string, seriesUid: string, signal?: AbortSignal): Promise<Slice[]> {
   const instances: DicomJson[] = [];
+  const group = instancesUrl(studyUid, seriesUid);
   for (let offset = 0; offset < MAX_INSTANCES; offset += QIDO_PAGE) {
-    const page = await qido(
-      `studies/${studyUid}/series/${seriesUid}/instances?limit=${QIDO_PAGE}&offset=${offset}&${fields(TAG.SOPInstanceUID, TAG.InstanceNumber, TAG.NumberOfFrames)}`,
-      signal,
-    );
+    const page = await qido(instancesUrl(studyUid, seriesUid, offset), signal, group);
     instances.push(...page);
     if (page.length < QIDO_PAGE) break;
   }
@@ -180,8 +223,8 @@ export async function slicesOfSeries(studyUid: string, seriesUid: string, signal
     seen.add(sop);
     const instanceNumber = tagNumber(o, TAG.InstanceNumber);
     const frames = tagNumber(o, TAG.NumberOfFrames) ?? 1;
-    if (frames > 1) for (let f = 1; f <= frames; f++) slices.push({ sop, instanceNumber, frame: f });
-    else slices.push({ sop, instanceNumber });
+    if (frames > 1) for (let f = 1; f <= frames; f++) slices.push({ sop, raw: o, instanceNumber, frame: f });
+    else slices.push({ sop, raw: o, instanceNumber });
   }
   return slices.sort((a, b) => (a.instanceNumber ?? 0) - (b.instanceNumber ?? 0) || (a.frame ?? 0) - (b.frame ?? 0));
 }
