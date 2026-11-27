@@ -17,8 +17,9 @@ export default function PatientListPage() {
   const [term, setTerm] = useState("");
   const [editing, setEditing] = useState<Patient | "new" | null>(null);
   const [notice, setNotice] = useState<string>();
-  const { patients, total, hasMore, loading, loadingMore, error, moreError, loadMore, reload, requestUrl } =
+  const { patients, total, totalIsUpperBound, mode, hasMore, loading, loadingMore, error, moreError, loadMore, reload, requestUrl } =
     usePatientSearch(term);
+  const startsWith = mode === "startsWith";
   const inspecting = useInspectorEnabled();
   const rowTarget = (p: Patient) => (): InspectTarget => ({
     title: `Patient row: ${formatName(p)}`,
@@ -80,7 +81,9 @@ export default function PatientListPage() {
             <InspectButton enabled={inspecting} target={listTarget} label="the patient search" />
             {!loading && !error && total !== undefined && (
               <span className="sub">
-                {term ? `${total} match${total === 1 ? "" : "es"}` : `${total} total`}
+                {term
+                  ? `${totalIsUpperBound ? "up to " : ""}${total} match${total === 1 && !totalIsUpperBound ? "" : "es"}`
+                  : `${total} total`}
                 {patients.length < total ? ` · showing ${patients.length}` : ""}
               </span>
             )}
@@ -90,8 +93,9 @@ export default function PatientListPage() {
               <input
                 className="input"
                 type="search"
-                placeholder="Search by name…"
-                aria-label="Search patients by name"
+                placeholder={startsWith ? "Name starts with…" : "Search by name…"}
+                aria-label={startsWith ? "Search patients by the start of a name" : "Search patients by name"}
+                aria-describedby={startsWith ? "search-hint" : undefined}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
               />
@@ -101,6 +105,13 @@ export default function PatientListPage() {
             </button>
           </div>
         </div>
+
+        {startsWith && (
+          <p id="search-hint" className="muted small search-hint">
+            This FHIR server only matches the start of a name: a search finds patients whose first, middle or last
+            name begins with what you type, so “ar” finds Arthur but not Cartwright.
+          </p>
+        )}
 
         {notice && (
           <div className="alert alert-success" role="status" style={{ marginBottom: "1rem" }}>
@@ -116,7 +127,13 @@ export default function PatientListPage() {
         ) : loading && patients.length === 0 ? (
           <Loading label={term ? `Searching for “${term}”…` : "Loading patients…"} />
         ) : patients.length === 0 ? (
-          <Empty>{term ? `No patients match “${term}”.` : "No patients on the server yet."}</Empty>
+          <Empty>
+            {!term
+              ? "No patients on the server yet."
+              : startsWith
+                ? `No patient has a first, middle or last name starting with “${term}”.`
+                : `No patients match “${term}”.`}
+          </Empty>
         ) : (
           <div className="table-wrap scroll-10" ref={scrollRef} aria-busy={loading}>
             <table>
