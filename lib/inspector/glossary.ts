@@ -266,6 +266,8 @@ export function codeMeaning(code: string, system?: string): string | undefined {
 // --- DICOM and DICOMweb ---------------------------------------------------------------------
 
 export const DICOMWEB_SPEC = "https://www.dicomstandard.org/using/dicomweb";
+/** IHE Radiology profile "Manifest-based Access to DICOM Objects". */
+export const IHE_MADO = "https://profiles.ihe.net/RAD/MADO";
 export const DICOM_PART18 = "https://dicom.nema.org/medical/dicom/current/output/html/part18.html";
 export const DICOM_DICTIONARY = "https://dicom.nema.org/medical/dicom/current/output/chtml/part06/chapter_6.html";
 

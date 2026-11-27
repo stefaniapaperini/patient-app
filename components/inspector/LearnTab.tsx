@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { patientStudiesUrl, qido, DICOMWEB_BASE } from "@/lib/dicom/dicomweb";
-import { DICOM_DICTIONARY, DICOM_PART18, DICOMWEB_SPEC, SEARCH_SPEC, SNOMED_BROWSER, specUrl } from "@/lib/inspector/glossary";
+import { DICOM_DICTIONARY, DICOM_PART18, DICOMWEB_SPEC, IHE_MADO, SEARCH_SPEC, SNOMED_BROWSER, specUrl } from "@/lib/inspector/glossary";
 import { getInspectorState, openPanel } from "@/lib/inspector/store";
 
 const tryIt = (url: string, method = "GET") => `/console?${new URLSearchParams({ method, url })}`;
@@ -287,6 +287,21 @@ export function LearnTab() {
           on the DICOM server → WADO-RS <code>/rendered</code> images. The Synthea test data invents its UIDs, so the
           search finds nothing (204) and those studies show “Not available”. The demo images come from example patients
           linked in <code>.env</code> (<code>DICOM_DEMO_PATIENTS</code>), and are labelled as another person’s images.
+        </p>
+        <p>
+          <b>Between hospitals: IHE MADO.</b> This app knows where the images are because <code>.env</code> names one
+          DICOM server. When images are shared between hospitals, the reader doesn’t know that in advance. The IHE
+          profile{" "}
+          <a href={IHE_MADO} target="_blank" rel="noreferrer">
+            MADO
+          </a>{" "}
+          (Manifest-based Access to DICOM Objects) solves it with a <b>manifest</b> of the study, shared like any other
+          document. It comes in two equivalent forms: a DICOM document (Key Object Selection), or a FHIR document Bundle
+          with the ImagingStudy, the Patient, the requested procedure and <b>Endpoint</b> resources. The ImagingStudy
+          already lists the series and images, so a viewer can show the study without searching first (no QIDO-RS); the
+          Endpoint gives the WADO-RS address to retrieve the images from, and can name a web viewer. It is the same
+          path this app follows, ImagingStudy → UIDs → DICOMweb, with the server’s address in the data instead of in a
+          configuration file.
         </p>
       </section>
     </div>
