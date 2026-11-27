@@ -79,7 +79,7 @@ Stop it with `docker stop patient-app`. After rebuilding the image, remove the o
   Bundle paging links so they go back through the proxy, and turns network failures, timeouts
   and auth errors into FHIR `OperationOutcome` messages.
 - **Patient list** (`/`) – loads 50 patients per page sorted by family name and loads more on scroll,
-  so it works with thousands of patients. The table scrolls after 10 rows.
+  so it works with thousands of patients. The table shows 15 rows, then scrolls.
 - **Search** – `name:contains` (matches anywhere in the name); falls back to `name` (starts-with)
   if the server does not support `:contains`. The challenge server has `:contains` disabled
   (HTTP 405, HAPI-1258), so there search matches the start of any given or family name.

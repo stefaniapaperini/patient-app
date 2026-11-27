@@ -35,35 +35,42 @@ export function PatientFormModal({
   const isEdit = !!patient?.id;
   const initial = useMemo(() => (patient ? patientToForm(patient) : EMPTY_FORM), [patient]);
   const [values, setValues] = useState<PatientFormValues>(initial);
-  const [errors, setErrors] = useState<PatientFormErrors>({});
-  const [submitted, setSubmitted] = useState(false);
+  /**
+   * Fields whose errors are shown: those the user has left (or changed, for the selects).
+   * Errors are not shown in fields not yet reached, so a new form doesn't open covered in red.
+   * An existing patient is checked at once, so problems in its stored data are visible.
+   */
+  const [touched, setTouched] = useState<Touched>(() => (opened?.id ? ALL_TOUCHED : {}));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
   const partialBirthDate = isPartialDate(initial.birthDate);
 
+  // Checked on every change: the save button is enabled only when every rule is met.
+  const allErrors = useMemo(() => validatePatient(values), [values]);
+  const valid = Object.keys(allErrors).length === 0;
+  const errors: PatientFormErrors = Object.fromEntries(
+    Object.entries(allErrors).filter(([k]) => touched[k as keyof PatientFormValues]),
+  );
+  const touch = (k: keyof PatientFormValues) => setTouched((t) => (t[k] ? t : { ...t, [k]: true }));
+
   const set = (k: keyof PatientFormValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const next = { ...values, [k]: e.target.value };
-    setValues(next);
-    // After the first submit attempt, re-validate as the user types so errors clear.
-    if (submitted) setErrors(validatePatient(next));
+    setValues({ ...values, [k]: e.target.value });
+    // A choice in a select is complete at once; text fields are checked when the user leaves them.
+    if (e.target instanceof HTMLSelectElement) touch(k);
   };
 
   const reset = () => {
     setValues(initial);
-    setErrors({});
-    setSubmitted(false);
+    setTouched(isEdit ? ALL_TOUCHED : {});
     setSaveError(undefined);
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
     setSaveError(undefined);
-    const errs = validatePatient(values);
-    setErrors(errs);
-    if (Object.keys(errs).length) {
-      const firstKey = Object.keys(errs)[0];
-      document.getElementById(`pf-${firstKey}`)?.focus();
+    // The button is disabled while the form is invalid; this guards any other way of submitting.
+    if (!canSave) {
+      setTouched(ALL_TOUCHED);
       return;
     }
     setSaving(true);
@@ -79,8 +86,7 @@ export function PatientFormModal({
           // Show their version so the user can redo the edit on top of it; nothing was saved.
           setPatient(current);
           setValues(patientToForm(current));
-          setErrors({});
-          setSubmitted(false);
+          setTouched(ALL_TOUCHED);
           setSaveError(
             "Someone else changed this patient’s name, gender, birth date or phone since you opened the form. The form now shows their version: make your change again and save.",
           );
@@ -111,6 +117,7 @@ export function PatientFormModal({
     name: k,
     value: values[k],
     onChange: set(k),
+    onBlur: () => touch(k),
     "aria-invalid": errors[k] ? true : undefined,
     "aria-describedby": errors[k] ? `pf-${k}-err` : undefined,
     disabled: saving,
@@ -124,6 +131,9 @@ export function PatientFormModal({
     ) : null;
 
   const dirty = JSON.stringify(values) !== JSON.stringify(initial);
+  // Updating needs a change; a new patient always differs from the empty form once it is valid.
+  const canSave = valid && (dirty || !isEdit);
+  const missing = REQUIRED.filter((k) => !values[k].trim()).length;
 
   return (
     <Modal title={isEdit ? "Edit patient" : "New patient"} onClose={() => !saving && onClose()}>
@@ -193,10 +203,16 @@ export function PatientFormModal({
           <button type="button" className="btn" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button type="button" className="btn" onClick={reset} disabled={saving || (!dirty && !submitted)}>
+          {!valid && !saving && (
+            <span className="small muted form-why" id="pf-why">
+              {missing > 0 ? "Fill in all required fields (*)" : "Correct the marked fields"} to{" "}
+              {isEdit ? "update" : "create"} the patient.
+            </span>
+          )}
+          <button type="button" className="btn" onClick={reset} disabled={saving || !dirty}>
             Reset
           </button>
-          <button type="submit" className="btn btn-primary" disabled={saving}>
+          <button type="submit" className="btn btn-primary" disabled={saving || !canSave} aria-describedby={!valid ? "pf-why" : undefined}>
             {saving && <span className="spinner" aria-hidden />}
             {isEdit ? (saving ? "Updating…" : "Update patient") : saving ? "Creating…" : "Create patient"}
           </button>
@@ -205,6 +221,10 @@ export function PatientFormModal({
     </Modal>
   );
 }
+
+type Touched = Partial<Record<keyof PatientFormValues, boolean>>;
+const ALL_TOUCHED: Touched = { given: true, family: true, gender: true, birthDate: true, phone: true };
+const REQUIRED = ["given", "family", "gender", "birthDate"] as const;
 
 /**
  * The patient as stored. Servers normally echo it back (we send Prefer: return=representation),

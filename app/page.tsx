@@ -135,7 +135,7 @@ export default function PatientListPage() {
                 : `No patients match “${term}”.`}
           </Empty>
         ) : (
-          <div className="table-wrap scroll-10" ref={scrollRef} aria-busy={loading}>
+          <div className="table-wrap scroll-15" ref={scrollRef} aria-busy={loading}>
             <table>
               <thead>
                 <tr>
