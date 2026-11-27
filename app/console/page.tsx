@@ -1,5 +1,6 @@
 "use client";
 
+import { own } from "@/lib/own";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RequestCard } from "@/components/inspector/RequestCard";
@@ -12,7 +13,7 @@ import type { LogEntry } from "@/lib/inspector/store";
 const METHODS = ["GET", "POST", "PUT"] as const;
 type Method = (typeof METHODS)[number];
 
-const TYPES = ["Patient", "Observation", "Condition", "MedicationRequest", "Medication"];
+const TYPES = ["Patient", "Observation", "Condition", "MedicationRequest", "Medication", "ImagingStudy"];
 
 /** Search parameters worth suggesting for each resource type (all standard FHIR R4). */
 const TYPE_PARAMS: Record<string, string[]> = {
@@ -21,6 +22,7 @@ const TYPE_PARAMS: Record<string, string[]> = {
   Condition: ["patient", "clinical-status", "code"],
   MedicationRequest: ["patient", "status", "_include=MedicationRequest:medication"],
   Medication: ["code", "_id"],
+  ImagingStudy: ["patient", "modality", "started", "identifier"],
 };
 const COMMON_PARAMS = ["_count", "_sort", "_total=accurate", "_summary=count", "_elements"];
 
@@ -220,7 +222,7 @@ function Console() {
             <span className="small muted">{type ? `${type} search parameters:` : "Resource types:"}</span>
             {type
               ? [...TYPE_PARAMS[type], ...COMMON_PARAMS].map((p) => (
-                  <button key={p} type="button" className="chip" onClick={() => addParam(p)} title={PARAMS[p.split("=")[0]] ?? ""}>
+                  <button key={p} type="button" className="chip" onClick={() => addParam(p)} title={own(PARAMS, p.split("=")[0]) ?? ""}>
                     {p.includes("=") ? p : `${p}=`}
                   </button>
                 ))

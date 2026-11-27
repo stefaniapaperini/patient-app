@@ -32,6 +32,15 @@ describe("matchesShownName", () => {
     expect(matchesShownName(eva, "eva", false)).toBe(true);
     expect(matchesShownName(eva, "NUN", false)).toBe(true);
   });
+  it("matches the text of a name that has no given or family parts, as the list shows it", () => {
+    const john: Patient = { resourceType: "Patient", name: [{ use: "official", text: "John Smith" }] };
+    expect(matchesShownName(john, "john", false)).toBe(true);
+    expect(matchesShownName(john, "smi", false)).toBe(true);
+    expect(matchesShownName(john, "n sm", true)).toBe(true);
+    // With given/family, the list shows those, so a different text is not matched.
+    const both: Patient = { resourceType: "Patient", name: [{ given: ["Ann"], family: "Lee", text: "Dr Ann Lee-Wong" }] };
+    expect(matchesShownName(both, "wong", true)).toBe(false);
+  });
   it("matches everyone when there is no search term", () => {
     expect(matchesShownName(livia, "  ", false)).toBe(true);
   });

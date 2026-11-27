@@ -1,4 +1,5 @@
 /** Vital-sign definitions (LOINC) and grouping of Observations into time series. */
+import { own } from "../own";
 import type { Observation, Quantity } from "./types";
 
 export interface VitalSeriesDef {
@@ -125,10 +126,10 @@ const UNIT_ALIASES: Record<string, string> = {
  * one vital share one label ("Cel", not "Cel" for some and "°C" for others) and one chart.
  */
 export function normalizeQuantity(q: Quantity): { value: number; unit: string } {
-  const conv = CONVERSIONS[q.code ?? ""] ?? CONVERSIONS[q.unit ?? ""];
+  const conv = own(CONVERSIONS, q.code ?? "") ?? own(CONVERSIONS, q.unit ?? "");
   if (conv) return { value: conv.convert(q.value!), unit: conv.unit };
   const unit =
-    (q.system === UCUM && q.code) || UNIT_ALIASES[q.code ?? ""] || UNIT_ALIASES[q.unit ?? ""] || q.unit || q.code || "";
+    (q.system === UCUM && q.code) || own(UNIT_ALIASES, q.code ?? "") || own(UNIT_ALIASES, q.unit ?? "") || q.unit || q.code || "";
   return { value: q.value!, unit };
 }
 

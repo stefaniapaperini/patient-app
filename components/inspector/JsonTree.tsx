@@ -1,5 +1,6 @@
 "use client";
 
+import { own } from "@/lib/own";
 import { useState } from "react";
 import { CODE_SYSTEMS, codeLookupText, codeMeaning, codeUrl, dicomTagName, fieldDoc } from "@/lib/inspector/glossary";
 
@@ -175,7 +176,7 @@ function Scalar({ value, name, parent }: { value: unknown; name?: string | numbe
       // An unknown code that can be looked up (e.g. SNOMED CT) gets a link to do so.
       meaning = codeMeaning(value, system) ?? (href ? codeLookupText(system) : undefined);
     } else if (name === "system") {
-      meaning = CODE_SYSTEMS[value];
+      meaning = own(CODE_SYSTEMS, value);
     } else if (name === "status") {
       meaning = codeMeaning(value);
     }

@@ -1,5 +1,6 @@
 "use client";
 
+import { own } from "@/lib/own";
 import { CODE_SYSTEMS, codeLookupText, codeMeaning, codeUrl } from "@/lib/inspector/glossary";
 
 const SHORT: Record<string, string> = {
@@ -14,12 +15,12 @@ const SHORT: Record<string, string> = {
  */
 export function CodeChip({ system, code, display }: { system?: string; code?: string; display?: string }) {
   if (!code) return null;
-  const sys = system ? SHORT[system] ?? system : undefined;
+  const sys = system ? own(SHORT, system) ?? system : undefined;
   const href = codeUrl(system, code);
   // A link opens another site: say so, as the JSON view does.
   const title = [
     display ?? codeMeaning(code, system),
-    system ? CODE_SYSTEMS[system] ?? system : undefined,
+    system ? own(CODE_SYSTEMS, system) ?? system : undefined,
     href ? `Click to ${codeLookupText(system)}.` : undefined,
   ]
     .filter(Boolean)

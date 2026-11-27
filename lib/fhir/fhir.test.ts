@@ -273,6 +273,8 @@ describe("vitals", () => {
     expect(normalizeQuantity({ value: 37, unit: "°C", code: "Cel", system: "http://unitsofmeasure.org" }).unit).toBe(f);
     expect(normalizeQuantity({ value: 37, unit: "°C" }).unit).toBe(f);
     expect(normalizeQuantity({ value: 70, unit: "kilogram" }).unit).toBe("kg");
+    // A unit named like an Object.prototype member is just an unknown unit.
+    expect(normalizeQuantity({ value: 70, code: "valueOf" })).toEqual({ value: 70, unit: "valueOf" });
   });
   it("charts one unit per vital", () => {
     const w = (id: string, value: number, unit: string, code: string, date: string): Observation => ({

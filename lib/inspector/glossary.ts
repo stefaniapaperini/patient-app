@@ -4,6 +4,8 @@
  * entry links to the FHIR R4 specification for the details.
  */
 
+import { own } from "../own";
+
 export const FHIR_SPEC = "https://hl7.org/fhir/R4";
 
 export function specUrl(resourceType: string): string {
@@ -27,6 +29,8 @@ export const PARAMS: Record<string, string> = {
   status: "Only resources with this status.",
   "clinical-status": "Only conditions with this clinical status, e.g. active or resolved.",
   category: "Only resources in this category, e.g. vital-signs.",
+  modality: "Only imaging studies with this modality (DICOM code), e.g. DX for X-ray or CT.",
+  started: "Filter on when the imaging study started. Prefixes such as ge (≥) and le (≤) give ranges.",
   _sort: "Sort order. A leading “-” sorts descending; a comma adds tie-breakers.",
   _count: "Page size: at most this many matches per page. Further pages are linked from Bundle.link “next”.",
   _total: "Ask the server to count every match into Bundle.total. “accurate” can be slower on big servers.",
@@ -230,17 +234,19 @@ export function fieldDoc(resourceType: string | undefined, path: string): string
   // DICOM JSON: keys are tags such as "0020000D".
   const last = parts[parts.length - 1];
   if (/^[0-9A-Fa-f]{8}$/.test(last)) {
-    const t = DICOM_TAGS[last.toUpperCase()];
+    const t = own(DICOM_TAGS, last.toUpperCase());
     return t ? `${dicomTagNotation(last)} ${t.name}: ${t.text}` : `DICOM tag ${dicomTagNotation(last)}.`;
   }
   // "Type.field" entries describe top-level fields only, so they are tried for the full path
   // alone: Patient.contact[0].name is the contact's name, not "Patient.name". Generic entries are
   // then tried on shorter suffixes: "name.given", "given".
   const full = parts.join(".");
-  if (resourceType && FIELDS[`${resourceType}.${full}`]) return FIELDS[`${resourceType}.${full}`];
+  const typed = resourceType ? own(FIELDS, `${resourceType}.${full}`) : undefined;
+  if (typed) return typed;
   for (let i = 0; i < parts.length; i++) {
     const suffix = parts.slice(i).join(".");
-    if (FIELDS[suffix]) return FIELDS[suffix];
+    const doc = own(FIELDS, suffix);
+    if (doc) return doc;
   }
   return undefined;
 }
@@ -251,9 +257,9 @@ export function fieldDoc(resourceType: string | undefined, path: string): string
  * count; without one (a status field, or a search for a bare code), both lists are tried.
  */
 export function codeMeaning(code: string, system?: string): string | undefined {
-  if (!system) return CODES[code] ?? STATUS_CODES[code];
-  if (system === "http://loinc.org") return CODES[code];
-  if (system.startsWith("http://terminology.hl7.org/") || system.startsWith("http://hl7.org/fhir/")) return STATUS_CODES[code];
+  if (!system) return own(CODES, code) ?? own(STATUS_CODES, code);
+  if (system === "http://loinc.org") return own(CODES, code);
+  if (system.startsWith("http://terminology.hl7.org/") || system.startsWith("http://hl7.org/fhir/")) return own(STATUS_CODES, code);
   return undefined;
 }
 
@@ -289,7 +295,7 @@ export const DICOM_TAGS: Record<string, { name: string; text: string }> = {
 
 /** "0020000D" -> "StudyInstanceUID" (or undefined for tags the glossary doesn't know). */
 export function dicomTagName(tag: string): string | undefined {
-  return DICOM_TAGS[tag.toUpperCase()]?.name;
+  return own(DICOM_TAGS, tag.toUpperCase())?.name;
 }
 
 /** "0020000D" -> "(0020,000D)", the notation of the DICOM standard. */

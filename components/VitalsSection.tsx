@@ -128,6 +128,12 @@ function VitalsCharts({ readings, ctx }: { readings: VitalReading[]; ctx: Inspec
 function VitalChart({ def, readings, ctx }: { def: VitalDef; readings: VitalReading[]; ctx: InspectCtx }) {
   const unit = unitFor(readings, def.key);
   const rows = useMemo(() => chartRows(readings, def.key, unit), [readings, def.key, unit]);
+  // The date as recorded, per chart point: a date-only reading must not show an invented time.
+  const dateAt = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const r of readings) if (r.vital === def.key && !m.has(r.time)) m.set(r.time, r.date);
+    return m;
+  }, [readings, def.key]);
   // Readings in a unit that can't be converted are left off the chart rather than drawn on the
   // wrong scale; the table still lists them.
   const otherUnits = readings.filter((r) => r.vital === def.key && r.unit !== unit).length;
@@ -226,7 +232,7 @@ function VitalChart({ def, readings, ctx }: { def: VitalDef; readings: VitalRead
                 content={({ active, payload, label }) =>
                   active && payload?.length ? (
                     <div className="tooltip">
-                      <div className="t-date">{formatDateTime(new Date(Number(label)).toISOString())}</div>
+                      <div className="t-date">{formatDateTime(dateAt.get(Number(label)) ?? new Date(Number(label)).toISOString())}</div>
                       {payload.map((p) => (
                         <div className="t-row" key={String(p.dataKey)}>
                           <i style={{ background: p.color }} />

@@ -28,9 +28,11 @@ export function matchesShownName(p: Patient, term: string, contains: boolean): b
   if (!t) return true;
   const n = primaryName(p);
   if (!n) return false;
-  const parts = [...(n.given ?? []), n.family ?? ""].filter((s) => s.trim()).map(fold);
+  // Exactly what formatName shows: given + family, or else the name's text.
+  const names = [...(n.given ?? []), n.family ?? ""].filter((s) => s.trim());
+  const parts = (names.length ? names : [n.text ?? ""]).filter((s) => s.trim()).map(fold);
   const full = parts.join(" ");
-  if (contains) return full.includes(t) || (n.text !== undefined && fold(n.text).includes(t));
+  if (contains) return full.includes(t);
   const words = parts.flatMap((s) => [s, ...s.split(/[\s-]+/)]);
   return full.startsWith(t) || words.some((w) => w.startsWith(t));
 }

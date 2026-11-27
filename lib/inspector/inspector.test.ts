@@ -133,3 +133,13 @@ describe("codes", () => {
     expect(codeUrl("http://snomed.info/sct", "368581000119106")).toContain("edition=MAIN/SNOMEDCT-US&");
   });
 });
+
+describe("lookups ignore Object.prototype", () => {
+  it("explains a parameter called constructor as an unknown one", () => {
+    const ex = explainRequest("GET", "Patient?constructor=1&toString:valueOf=2");
+    expect(ex.params[0].text).toMatch(/^Search parameter “constructor”/);
+    expect(ex.params[1].text).toMatch(/Modifier “:valueOf”/);
+    expect(codeMeaning("toString")).toBeUndefined();
+    expect(fieldDoc("Patient", "constructor")).toBeUndefined();
+  });
+});

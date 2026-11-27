@@ -88,8 +88,10 @@ function SeriesImages({ studyUid, series }: { studyUid: string; series: DicomSer
     const el = frameRef.current;
     if (!el || count < 2) return;
     const onWheel = (e: WheelEvent) => {
+      // Only vertical scrolling steps through the images; a sideways swipe (deltaY 0) is left alone.
+      if (e.deltaY === 0) return;
       e.preventDefault();
-      setIndex((i) => Math.max(0, Math.min(count - 1, i + (e.deltaY > 0 ? 1 : -1))));
+      setIndex((i) => Math.max(0, Math.min(count - 1, i + Math.sign(e.deltaY))));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);

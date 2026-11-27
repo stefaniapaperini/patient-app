@@ -1,4 +1,5 @@
 /** Turns a FHIR request URL into parts a person can read, and builds a curl command for it. */
+import { own } from "../own";
 import { codeMeaning, DICOM_PARAMS, DICOM_TAGS, dicomTagNotation, MODIFIERS, PARAMS } from "./glossary";
 
 export interface ExplainedParam {
@@ -51,8 +52,8 @@ export function explainRequest(method: string, url: string): ExplainedRequest {
   const out: ExplainedParam[] = [];
   for (const [name, value] of params) {
     const [base, modifier] = name.split(":");
-    const parts = [PARAMS[base] ?? `Search parameter “${base}”. See the resource’s search parameters in the FHIR specification.`];
-    if (modifier) parts.push(MODIFIERS[modifier] ?? `Modifier “:${modifier}”.`);
+    const parts = [own(PARAMS, base) ?? `Search parameter “${base}”. See the resource’s search parameters in the FHIR specification.`];
+    if (modifier) parts.push(own(MODIFIERS, modifier) ?? `Modifier “:${modifier}”.`);
     const p: ExplainedParam = { name, base, modifier, value, text: parts.join(" ") };
     if (base === "code" || base === "clinical-status" || base === "status") {
       p.values = value.split(",").map((v) => {
@@ -151,9 +152,9 @@ export function explainDicomRequest(url: string): ExplainedDicomRequest {
   if (s[5]) uids.push({ label: "Instance", tag: "00080018", value: s[5] });
   const params: ExplainedParam[] = [];
   for (const [name, value] of new URLSearchParams(query)) {
-    let text = DICOM_PARAMS[name] ?? `Query parameter “${name}”.`;
+    let text = own(DICOM_PARAMS, name) ?? `Query parameter “${name}”.`;
     if (name === "includefield") {
-      const t = DICOM_TAGS[value.toUpperCase()];
+      const t = own(DICOM_TAGS, value.toUpperCase());
       text = t ? `Also return ${dicomTagNotation(value)} ${t.name}: ${t.text}` : `${text} Tag ${dicomTagNotation(value)}.`;
     }
     params.push({ name, base: name, value, text });
