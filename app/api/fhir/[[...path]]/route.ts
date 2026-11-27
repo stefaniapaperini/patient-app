@@ -100,12 +100,14 @@ async function handle(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (res.status === 401 || res.status === 403) {
     // Make auth failures obvious, whatever the body (gateways often send none, or HTML): the
     // browser can't fix these, only the server config can.
+    // 401: the token is missing or wrong. 403: the token was accepted, but this request is not
+    // allowed (e.g. one resource the server's access rules deny), so don't blame the token.
     const detail = (json as { issue?: { diagnostics?: string }[] } | undefined)?.issue?.[0]?.diagnostics;
-    return errorResponse(
-      res.status,
-      `The FHIR server rejected the credentials (HTTP ${res.status}). Check FHIR_TOKEN in .env.${detail ? ` Server said: ${detail}` : ""}`,
-      "security",
-    );
+    const message =
+      res.status === 401
+        ? "The FHIR server rejected the credentials (HTTP 401). Check FHIR_TOKEN in .env."
+        : "The FHIR server refused this request (HTTP 403): the credentials do not allow it.";
+    return errorResponse(res.status, `${message}${detail ? ` Server said: ${detail}` : ""}`, "security");
   }
 
   if (!text) return new Response(null, { status: res.status, headers: outHeaders });

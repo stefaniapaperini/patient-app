@@ -56,8 +56,9 @@ export function explainRequest(method: string, url: string): ExplainedRequest {
     const p: ExplainedParam = { name, base, modifier, value, text: parts.join(" ") };
     if (base === "code" || base === "clinical-status" || base === "status") {
       p.values = value.split(",").map((v) => {
-        const code = v.includes("|") ? v.split("|")[1] : v;
-        return { value: v, meaning: codeMeaning(code) };
+        // "system|code" names the code system; a bare code may be from any.
+        const [system, code] = v.includes("|") ? v.split("|") : [undefined, v];
+        return { value: v, meaning: codeMeaning(code, system || undefined) };
       });
     }
     out.push(p);
@@ -187,7 +188,8 @@ export function explainDicomRequest(url: string): ExplainedDicomRequest {
  */
 export function toDicomCurl(url: string): string {
   const { service, path, query } = splitDicom(url);
-  const variable = service === "wado" ? "$DICOMWEB_WADO_URL" : "$DICOMWEB_QIDO_URL";
+  // DICOMWEB_WADO_URL is optional: the server then uses the QIDO URL for both, and so does this.
+  const variable = service === "wado" ? "${DICOMWEB_WADO_URL:-$DICOMWEB_QIDO_URL}" : "$DICOMWEB_QIDO_URL";
   const rest = `/${path}${query ? `?${query}` : ""}`;
   const lines = [`curl "${variable}"${shellQuote(rest)}`];
   if (service === "wado") lines.push(`  -H "Accept: image/jpeg" -o image.jpg`);

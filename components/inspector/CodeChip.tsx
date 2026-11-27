@@ -1,6 +1,6 @@
 "use client";
 
-import { CODE_SYSTEMS, codeMeaning, codeUrl } from "@/lib/inspector/glossary";
+import { CODE_SYSTEMS, codeLookupText, codeMeaning, codeUrl } from "@/lib/inspector/glossary";
 
 const SHORT: Record<string, string> = {
   "http://loinc.org": "LOINC",
@@ -15,8 +15,15 @@ const SHORT: Record<string, string> = {
 export function CodeChip({ system, code, display }: { system?: string; code?: string; display?: string }) {
   if (!code) return null;
   const sys = system ? SHORT[system] ?? system : undefined;
-  const title = [display ?? codeMeaning(code), system ? CODE_SYSTEMS[system] ?? system : undefined].filter(Boolean).join(" · ");
   const href = codeUrl(system, code);
+  // A link opens another site: say so, as the JSON view does.
+  const title = [
+    display ?? codeMeaning(code, system),
+    system ? CODE_SYSTEMS[system] ?? system : undefined,
+    href ? `Click to ${codeLookupText(system)}.` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const text = `${sys ? sys + " " : ""}${code}`;
   return href ? (
     <a className="code-chip" href={href} target="_blank" rel="noreferrer" title={title}>

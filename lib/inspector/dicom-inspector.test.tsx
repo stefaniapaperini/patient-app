@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
-import { patientStudiesUrl, qido } from "../dicom/dicomweb";
+import { patientStudiesUrl, qido, slicesOfSeries } from "../dicom/dicomweb";
 import { dicomDisplayUrl, explainDicomRequest, isDicomUrl, toDicomCurl } from "./explain";
 import { dicomTagName, fieldDoc } from "./glossary";
 import { getInspectorState, setEnabled } from "./store";
@@ -54,8 +54,15 @@ describe("DICOMweb requests in the inspector", () => {
     expect(out).toContain(`https://dicom.test/qido/studies?PatientID=${evil}`);
     expect(out).toContain("Accept: application/dicom+json");
     expect(toDicomCurl(`/api/dicomweb/wado/studies/${st}/series/${se}/instances/${sop}/rendered`)).toMatch(
-      /^curl "\$DICOMWEB_WADO_URL"'\/studies\/.*\/rendered' \\\n {2}-H "Accept: image\/jpeg" -o image\.jpg$/,
+      /^curl "\$\{DICOMWEB_WADO_URL:-\$DICOMWEB_QIDO_URL\}"'\/studies\/.*\/rendered' \\\n {2}-H "Accept: image\/jpeg" -o image\.jpg$/,
     );
+  });
+  it("an image's curl command falls back to the QIDO URL when no WADO URL is set", () => {
+    const cmd = toDicomCurl(`/api/dicomweb/wado/studies/${st}/series/${se}/instances/${sop}/rendered`);
+    const run = (env: Record<string, string>) =>
+      execFileSync("bash", ["-c", `curl() { printf '%s\\n' "$1"; }\n${cmd}`], { env: { ...process.env, DICOMWEB_QIDO_URL: "", DICOMWEB_WADO_URL: "", ...env }, encoding: "utf8" }).trim();
+    expect(run({ DICOMWEB_QIDO_URL: "https://dicom.test/root" })).toBe(`https://dicom.test/root/studies/${st}/series/${se}/instances/${sop}/rendered`);
+    expect(run({ DICOMWEB_QIDO_URL: "https://q.test", DICOMWEB_WADO_URL: "https://w.test" })).toMatch(/^https:\/\/w\.test\/studies\//);
   });
   it("names DICOM tags in DICOM JSON", () => {
     expect(dicomTagName("0020000d")).toBe("StudyInstanceUID");
@@ -93,6 +100,26 @@ describe("DICOMweb searches are logged like FHIR requests", () => {
     expect(a.responseBody).toHaveLength(1);
     expect(b.status).toBe(204);
     expect(b.responseBody).toBeUndefined();
+  });
+  it("pages a series by what the server returns, until an empty page", async () => {
+    // A server that caps pages at 2 results, with 5 instances.
+    const all = [1, 2, 3, 4, 5].map((n) => ({ "00080018": { vr: "UI", Value: [`1.2.3.${n}`] }, "00200013": { vr: "IS", Value: [n] } }));
+    const offsets: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const offset = Number(new URL(url, "http://x").searchParams.get("offset"));
+        offsets.push(offset);
+        const page = all.slice(offset, offset + 2);
+        return page.length ? new Response(JSON.stringify(page), { status: 200 }) : new Response(null, { status: 204 });
+      }),
+    );
+    expect((await slicesOfSeries(st, se)).map((s) => s.instanceNumber)).toEqual([1, 2, 3, 4, 5]);
+    expect(offsets).toEqual([0, 2, 4, 5]);
+    // With the series' instance count known, no extra request for the empty page.
+    offsets.length = 0;
+    expect(await slicesOfSeries(st, se, undefined, 5)).toHaveLength(5);
+    expect(offsets).toEqual([0, 2, 4]);
   });
   it("records refused requests with the proxy's message", async () => {
     setEnabled(true);

@@ -46,7 +46,7 @@ export function PatientFormModal({
   const partialBirthDate = isPartialDate(initial.birthDate);
 
   // Checked on every change: the save button is enabled only when every rule is met.
-  const allErrors = useMemo(() => validatePatient(values), [values]);
+  const allErrors = useMemo(() => validatePatient(values, new Date(), isEdit ? initial : undefined), [values, isEdit, initial]);
   const valid = Object.keys(allErrors).length === 0;
   const errors: PatientFormErrors = Object.fromEntries(
     Object.entries(allErrors).filter(([k]) => touched[k as keyof PatientFormValues]),

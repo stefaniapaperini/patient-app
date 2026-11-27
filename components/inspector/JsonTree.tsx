@@ -173,7 +173,7 @@ function Scalar({ value, name, parent }: { value: unknown; name?: string | numbe
       const system = typeof parent?.system === "string" ? parent.system : undefined;
       href = codeUrl(system, value);
       // An unknown code that can be looked up (e.g. SNOMED CT) gets a link to do so.
-      meaning = codeMeaning(value) ?? (href ? codeLookupText(system) : undefined);
+      meaning = codeMeaning(value, system) ?? (href ? codeLookupText(system) : undefined);
     } else if (name === "system") {
       meaning = CODE_SYSTEMS[value];
     } else if (name === "status") {

@@ -39,6 +39,16 @@ export function Empty({ children }: { children: React.ReactNode }) {
   return <div className="state">{children}</div>;
 }
 
+/** Shown when a search had more pages than the app loads (fetchAllPages stopped early). */
+export function TruncatedNote({ what }: { what: string }) {
+  return (
+    <p className="muted small">
+      Not all {what} were loaded: this patient has a very large number of them, so this list and its counts may be
+      incomplete.
+    </p>
+  );
+}
+
 export function Segmented<T extends string>({
   label,
   value,

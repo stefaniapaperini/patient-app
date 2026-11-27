@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Empty, ErrorBanner, Loading, Segmented } from "./ui";
+import { Empty, ErrorBanner, Loading, TruncatedNote, Segmented } from "./ui";
 import { InspectButton, inspectable } from "./inspector/Inspect";
 import { fetchAllPages, matches } from "@/lib/fhir/client";
 import {
@@ -26,13 +26,14 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
   const [text, setText] = useState("");
   const query = `Condition?${new URLSearchParams({ patient: patientId, _count: "200" })}`;
   const inspecting = useInspectorEnabled();
-  const { data, loading, error, reload } = useAsync(
+  const { data: loaded, loading, error, reload } = useAsync(
     async (signal) => {
-      const { entries } = await fetchAllPages<Condition>(query, { signal });
-      return matches<Condition>(entries, "Condition").filter((c) => !isEnteredInError(c));
+      const { entries, truncated } = await fetchAllPages<Condition>(query, { signal });
+      return { list: matches<Condition>(entries, "Condition").filter((c) => !isEnteredInError(c)), truncated };
     },
     [patientId],
   );
+  const data = loaded?.list;
 
   const counts = useMemo(() => {
     const all = data ?? [];
@@ -91,7 +92,10 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
         <Loading label="Loading conditions…" />
       ) : error ? (
         <ErrorBanner title="Could not load conditions" message={error} onRetry={reload} />
-      ) : rows.length === 0 ? (
+      ) : (
+        <>
+          {loaded?.truncated && <TruncatedNote what="conditions" />}
+          {rows.length === 0 ? (
         <Empty>
           {data?.length === 0
             ? "No conditions recorded for this patient."
@@ -148,6 +152,8 @@ export function ConditionsSection({ patientId }: { patientId: string }) {
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
     </section>
   );

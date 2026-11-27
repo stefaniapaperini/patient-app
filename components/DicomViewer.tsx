@@ -67,7 +67,8 @@ function SeriesImages({ studyUid, series }: { studyUid: string; series: DicomSer
   const seriesUid = series.uid;
   const modality = series.modality;
   const inspecting = useInspectorEnabled();
-  const slices = useAsync((signal) => slicesOfSeries(studyUid, seriesUid, signal), [studyUid, seriesUid]);
+  const expected = series.instanceCount;
+  const slices = useAsync((signal) => slicesOfSeries(studyUid, seriesUid, signal, expected), [studyUid, seriesUid, expected]);
   const list = slices.data ?? [];
   const [index, setIndex] = useState(0);
   /** Load state of one image URL: a state for an earlier URL means the current one is still loading. */

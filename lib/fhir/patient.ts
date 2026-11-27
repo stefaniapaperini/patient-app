@@ -21,7 +21,8 @@ export type PatientFormErrors = Partial<Record<keyof PatientFormValues, string>>
 
 export const EMPTY_FORM: PatientFormValues = { given: "", family: "", gender: "", birthDate: "", phone: "" };
 
-const NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M}' .-]*$/u;
+// Apostrophes: straight ' and typographic ’ (as in O’Brien).
+const NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M}'\u2019 .-]*$/u;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** FHIR `date` allows reduced precision: YYYY, YYYY-MM or YYYY-MM-DD. */
 const FHIR_DATE_RE = /^\d{4}(-\d{2}(-\d{2})?)?$/;
@@ -48,20 +49,27 @@ export function isPartialDate(s: string): boolean {
   return FHIR_DATE_RE.test(s) && !DATE_RE.test(s);
 }
 
-function validateName(value: string, label: string): string | undefined {
+function validateName(value: string, label: string, stored?: string): string | undefined {
   const v = value.trim();
   if (!v) return `${label} is required.`;
   if (v.length > 100) return `${label} must be at most 100 characters.`;
+  // A name already on the server is accepted as it is, even with characters a typed name may not
+  // have (e.g. Synthea's "Abe604"): otherwise the patient could not be saved at all.
+  if (v === stored?.trim()) return undefined;
   if (!NAME_RE.test(v)) return `${label} may contain only letters, spaces, apostrophes, dots and hyphens.`;
   return undefined;
 }
 
-export function validatePatient(v: PatientFormValues, now = new Date()): PatientFormErrors {
+/**
+ * Checks the form. `stored` is the patient as loaded, when editing: names and a phone number left
+ * as they were are accepted, so a patient whose stored data breaks these rules can still be saved.
+ */
+export function validatePatient(v: PatientFormValues, now = new Date(), stored?: PatientFormValues): PatientFormErrors {
   const errors: PatientFormErrors = {};
 
-  const given = validateName(v.given, "First name");
+  const given = validateName(v.given, "First name", stored?.given);
   if (given) errors.given = given;
-  const family = validateName(v.family, "Last name");
+  const family = validateName(v.family, "Last name", stored?.family);
   if (family) errors.family = family;
 
   if (!v.gender) errors.gender = "Gender is required.";
@@ -76,7 +84,7 @@ export function validatePatient(v: PatientFormValues, now = new Date()): Patient
   else if (bd < "1900-01-01".slice(0, bd.length)) errors.birthDate = "Date of birth cannot be before 1900.";
 
   const phone = v.phone.trim();
-  if (phone) {
+  if (phone && phone !== stored?.phone.trim()) {
     const digits = phone.replace(/\D/g, "");
     if (!PHONE_RE.test(phone)) errors.phone = "Phone may contain only digits, spaces, +, -, ( ) and dots.";
     else if (digits.length < 6 || digits.length > 15) errors.phone = "Phone must have between 6 and 15 digits.";

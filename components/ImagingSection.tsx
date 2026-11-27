@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { DicomViewer } from "./DicomViewer";
 import { InspectButton, inspectable } from "./inspector/Inspect";
-import { Empty, ErrorBanner, Loading } from "./ui";
+import { Empty, ErrorBanner, Loading, TruncatedNote } from "./ui";
 import { fetchAllPages, matches } from "@/lib/fhir/client";
 import { formatDate } from "@/lib/fhir/format";
 import type { ImagingStudy } from "@/lib/fhir/types";
@@ -48,7 +48,7 @@ export function ImagingSection({ patientId }: { patientId: string }) {
       const config = await imagingConfig(signal);
       if (!config.enabled) return { enabled: false as const };
 
-      const { entries } = await fetchAllPages<ImagingStudy>(query, { signal });
+      const { entries, truncated } = await fetchAllPages<ImagingStudy>(query, { signal });
       const studies = matches<ImagingStudy>(entries, "ImagingStudy").sort((a, b) =>
         (b.started ?? "").localeCompare(a.started ?? ""),
       );
@@ -67,7 +67,8 @@ export function ImagingSection({ patientId }: { patientId: string }) {
         );
       }
 
-      const demoPatient = config.demoPatients[patientId];
+      // Own keys only: an id like "toString" must not find Object.prototype's function.
+      const demoPatient = Object.hasOwn(config.demoPatients, patientId) ? config.demoPatients[patientId] : undefined;
       let demo: DicomStudy[] = [];
       let demoError: string | undefined;
       if (demoPatient) {
@@ -78,7 +79,7 @@ export function ImagingSection({ patientId }: { patientId: string }) {
           demoError = e instanceof Error ? e.message : String(e);
         }
       }
-      return { enabled: true as const, rows, demoPatient, demo, demoError };
+      return { enabled: true as const, rows, truncated, demoPatient, demo, demoError };
     },
     [patientId],
   );
@@ -131,6 +132,7 @@ export function ImagingSection({ patientId }: { patientId: string }) {
         <ErrorBanner title="Could not load imaging studies" message={error} onRetry={reload} />
       ) : data?.enabled ? (
         <>
+          {data.truncated && <TruncatedNote what="imaging studies" />}
           {anyFailed && (
             <ErrorBanner
               title="The DICOM server could not be reached"

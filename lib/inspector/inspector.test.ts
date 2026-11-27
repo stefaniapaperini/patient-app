@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { explainRequest, splitUrl, toCurl } from "./explain";
-import { fieldDoc, normalizePath } from "./glossary";
+import { codeMeaning, codeUrl, fieldDoc, normalizePath } from "./glossary";
 import { entriesFor, getInspectorState, recordRequest, setEnabled, type LogEntry } from "./store";
 import { isHighlighted } from "../../components/inspector/JsonTree";
 
@@ -115,5 +115,21 @@ describe("logging only while the inspector is on", () => {
     expect(logLength()).toBe(1);
     setEnabled(false);
     expect(logLength()).toBe(0);
+  });
+});
+
+describe("codes", () => {
+  it("gives a meaning only within the code's own system", () => {
+    expect(codeMeaning("8867-4", "http://loinc.org")).toBe("Heart rate");
+    expect(codeMeaning("8867-4")).toBe("Heart rate");
+    expect(codeMeaning("8867-4", "http://snomed.info/sct")).toBeUndefined();
+    expect(codeMeaning("active", "http://snomed.info/sct")).toBeUndefined();
+    expect(codeMeaning("active", "http://terminology.hl7.org/CodeSystem/condition-clinical")).toMatch(/^Active/);
+    expect(explainRequest("GET", "Observation?code=http://snomed.info/sct|8867-4").params[0].values?.[0].meaning).toBeUndefined();
+  });
+  it("links SNOMED CT concepts to the edition that holds them", () => {
+    expect(codeUrl("http://snomed.info/sct", "241046008")).toContain("edition=MAIN&");
+    // A US Extension concept (partition "10").
+    expect(codeUrl("http://snomed.info/sct", "368581000119106")).toContain("edition=MAIN/SNOMEDCT-US&");
   });
 });

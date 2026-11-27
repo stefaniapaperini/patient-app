@@ -54,8 +54,17 @@ describe("validatePatient", () => {
   it("rejects invalid gender, names with digits and bad phones", () => {
     expect(validatePatient({ ...valid, gender: "x" as never }, NOW).gender).toBeDefined();
     expect(validatePatient({ ...valid, given: "John123" }, NOW).given).toBeDefined();
+    expect(validatePatient({ ...valid, family: "O’Brien" }, NOW).family).toBeUndefined();
     expect(validatePatient({ ...valid, phone: "abc" }, NOW).phone).toBeDefined();
     expect(validatePatient({ ...valid, phone: "123" }, NOW).phone).toBeDefined();
+  });
+  it("accepts stored names and phone left unchanged when editing", () => {
+    const stored = { ...valid, given: "Abe604", family: "Bode78", phone: "555 ext 1" };
+    expect(validatePatient({ ...stored, phone: "555 ext 1" }, NOW, stored)).toEqual({});
+    // A changed name is checked again.
+    expect(validatePatient({ ...stored, given: "Abe605" }, NOW, stored).given).toBeDefined();
+    // Required fields stay required.
+    expect(validatePatient({ ...stored, family: "" }, NOW, stored).family).toBeDefined();
   });
 });
 
@@ -258,6 +267,12 @@ describe("vitals", () => {
     expect(normalizeQuantity({ value: 10, unit: "in" })).toEqual({ value: 25.4, unit: "cm" });
     expect(normalizeQuantity({ value: 212, code: "[degF]" })).toEqual({ value: 100, unit: "Cel" });
     expect(normalizeQuantity({ value: 70, unit: "kg", code: "kg" })).toEqual({ value: 70, unit: "kg" });
+  });
+  it("labels a unit the same however it is written, so mixed readings share one chart", () => {
+    const f = normalizeQuantity({ value: 98.6, unit: "°F", code: "[degF]" }).unit;
+    expect(normalizeQuantity({ value: 37, unit: "°C", code: "Cel", system: "http://unitsofmeasure.org" }).unit).toBe(f);
+    expect(normalizeQuantity({ value: 37, unit: "°C" }).unit).toBe(f);
+    expect(normalizeQuantity({ value: 70, unit: "kilogram" }).unit).toBe("kg");
   });
   it("charts one unit per vital", () => {
     const w = (id: string, value: number, unit: string, code: string, date: string): Observation => ({

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Empty, ErrorBanner, Loading, Segmented } from "./ui";
+import { Empty, ErrorBanner, Loading, Segmented, TruncatedNote } from "./ui";
 import { CodeChip } from "./inspector/CodeChip";
 import { InspectButton, inspectable } from "./inspector/Inspect";
 import { fetchAllPages, fhirFetch, matches } from "@/lib/fhir/client";
@@ -30,7 +30,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
   const inspecting = useInspectorEnabled();
   const { data, loading, error, reload } = useAsync(
     async (signal) => {
-      const { entries } = await fetchAllPages<MedicationRequest>(query, { signal });
+      const { entries, truncated } = await fetchAllPages<MedicationRequest>(query, { signal });
       const requests = matches<MedicationRequest>(entries, "MedicationRequest");
       const known = includedMedications(entries);
       const base = serverBase(entries);
@@ -50,7 +50,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
         );
       }
       // Referenced Medications fetched one by one (not returned by _include): the inspector shows those GETs too.
-      return { requests, known, base, failed, fetchedSeparately: new Set(missing) };
+      return { requests, known, base, failed, fetchedSeparately: new Set(missing), truncated };
     },
     [patientId],
   );
@@ -104,6 +104,7 @@ export function MedicationsSection({ patientId }: { patientId: string }) {
         <ErrorBanner title="Could not load medications" message={error} onRetry={reload} />
       ) : (
         <>
+          {data?.truncated && <TruncatedNote what="medications" />}
           {data && data.failed.length > 0 && (
             <p className="muted small">
               {data.failed.length} referenced Medication resource{data.failed.length > 1 ? "s" : ""} could not be loaded.

@@ -24,7 +24,7 @@ export default function PatientListPage() {
   const rowTarget = (p: Patient) => (): InspectTarget => ({
     title: `Patient row: ${formatName(p)}`,
     description:
-      "This row is one Patient resource from a search Bundle. The name comes from name[0] (given + family), then gender and birthDate.",
+      "This row is one Patient resource from a search Bundle. The name is the official one (else the usual one, else the first in name), given + family; then gender and birthDate.",
     requests: requestUrl ? [requestUrl] : [],
     resources: [p],
     highlight: ["name", "gender", "birthDate"],

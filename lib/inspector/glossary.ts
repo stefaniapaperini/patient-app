@@ -49,7 +49,7 @@ export const MODIFIERS: Record<string, string> = {
   text: "“:text” searches the display text of codes instead of the code itself.",
 };
 
-/** Codes seen in this app's data, with what they mean. */
+/** LOINC codes seen in this app's data, with what they mean. */
 export const CODES: Record<string, string> = {
   // LOINC vital signs
   "8867-4": "Heart rate",
@@ -68,7 +68,10 @@ export const CODES: Record<string, string> = {
   "8462-4": "Diastolic blood pressure",
   "72166-2": "Tobacco smoking status",
   "72514-3": "Pain severity, 0–10",
-  // Status codes
+};
+
+/** Status and category codes from FHIR's own (HL7) code systems. */
+const STATUS_CODES: Record<string, string> = {
   active: "Active: currently applies.",
   resolved: "Resolved: no longer applies.",
   inactive: "Inactive: no longer applies.",
@@ -99,7 +102,11 @@ export function codeUrl(system: string | undefined, code: string): string | unde
   if (system === "http://loinc.org") return `https://loinc.org/${encodeURIComponent(code)}/`;
   // SNOMED CT concept ids are 6 to 18 digits.
   if (system === "http://snomed.info/sct" && /^\d{6,18}$/.test(code)) {
-    return `${SNOMED_BROWSER}?perspective=full&conceptId1=${code}&edition=MAIN&release=&languages=en`;
+    // The 2nd and 3rd digits from the right are the partition: "00" is an International Edition
+    // concept, "10" a concept from a national extension. Synthea (US data) also uses US Extension
+    // concepts, which only the US Edition (International content plus the US Extension) holds.
+    const edition = code.slice(-3, -1) === "10" ? "MAIN/SNOMEDCT-US" : "MAIN";
+    return `${SNOMED_BROWSER}?perspective=full&conceptId1=${code}&edition=${edition}&release=&languages=en`;
   }
   return undefined;
 }
@@ -238,8 +245,16 @@ export function fieldDoc(resourceType: string | undefined, path: string): string
   return undefined;
 }
 
-export function codeMeaning(code: string): string | undefined {
-  return CODES[code];
+/**
+ * What a code means, if the glossary knows it. A code is only meaningful in its code system
+ * ("active" in SNOMED CT is not the FHIR status), so with a `system` only that system's codes
+ * count; without one (a status field, or a search for a bare code), both lists are tried.
+ */
+export function codeMeaning(code: string, system?: string): string | undefined {
+  if (!system) return CODES[code] ?? STATUS_CODES[code];
+  if (system === "http://loinc.org") return CODES[code];
+  if (system.startsWith("http://terminology.hl7.org/") || system.startsWith("http://hl7.org/fhir/")) return STATUS_CODES[code];
+  return undefined;
 }
 
 // --- DICOM and DICOMweb ---------------------------------------------------------------------

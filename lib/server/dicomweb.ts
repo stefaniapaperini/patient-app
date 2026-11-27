@@ -89,7 +89,9 @@ export function buildDicomUpstream(config: DicomConfig, segments: string[], sear
       if (!QIDO_PARAMS.has(name) || value.length > 128) return null;
       if ((name === "limit" || name === "offset") && !/^[0-9]{1,5}$/.test(value)) return null;
       if (name === "StudyInstanceUID" && !isUid(value)) return null;
-      // Wildcards would turn a patient lookup into a search of everyone on the public server.
+      // A patient lookup matches one PatientID exactly: no wildcards. Searches without a filter are
+      // allowed on purpose (Learn's examples list a few studies): the server is public, with
+      // anonymous test data, and returns at most a page of results per request.
       if (name === "PatientID" && /[*?\\]/.test(value)) return null;
       if (name === "includefield" && !/^([0-9A-Fa-f]{8}|all)$/.test(value)) return null;
     }

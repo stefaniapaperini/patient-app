@@ -104,11 +104,32 @@ const CONVERSIONS: Record<string, { unit: string; convert: (v: number) => number
   "°F": { unit: "Cel", convert: (v) => ((v - 32) * 5) / 9 },
 };
 
-/** Value and unit, converted to the metric unit when the reading is in pounds, inches or °F. */
+const UCUM = "http://unitsofmeasure.org";
+
+/** Common ways of writing a unit, as their UCUM code (the label converted readings get). */
+const UNIT_ALIASES: Record<string, string> = {
+  "°C": "Cel",
+  degC: "Cel",
+  "deg C": "Cel",
+  kilogram: "kg",
+  kilograms: "kg",
+  centimeter: "cm",
+  centimeters: "cm",
+  "beats/minute": "/min",
+  "breaths/minute": "/min",
+};
+
+/**
+ * Value and unit, converted to the metric unit when the reading is in pounds, inches or °F.
+ * The unit is labelled by its UCUM code where known, so converted and unconverted readings of
+ * one vital share one label ("Cel", not "Cel" for some and "°C" for others) and one chart.
+ */
 export function normalizeQuantity(q: Quantity): { value: number; unit: string } {
-  const unit = q.unit ?? q.code ?? "";
   const conv = CONVERSIONS[q.code ?? ""] ?? CONVERSIONS[q.unit ?? ""];
-  return conv ? { value: conv.convert(q.value!), unit: conv.unit } : { value: q.value!, unit };
+  if (conv) return { value: conv.convert(q.value!), unit: conv.unit };
+  const unit =
+    (q.system === UCUM && q.code) || UNIT_ALIASES[q.code ?? ""] || UNIT_ALIASES[q.unit ?? ""] || q.unit || q.code || "";
+  return { value: q.value!, unit };
 }
 
 function push(out: VitalReading[], o: Observation, date: string, q: Quantity | undefined, code: string) {

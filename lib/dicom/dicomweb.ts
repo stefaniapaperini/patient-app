@@ -102,7 +102,7 @@ export async function qido(url: string, signal?: AbortSignal, group?: string): P
 
 const fields = (...tags: string[]) => tags.map((t) => `includefield=${t}`).join("&");
 
-/** The server returns at most this many results per QIDO request. */
+/** Results asked for per QIDO request (servers may return fewer: they can cap pages lower). */
 const QIDO_PAGE = 100;
 
 export interface DicomStudy {
@@ -206,14 +206,22 @@ export interface Slice {
 
 const MAX_INSTANCES = 2000;
 
-/** All images of a series, in instance order, expanding multi-frame instances into frames. */
-export async function slicesOfSeries(studyUid: string, seriesUid: string, signal?: AbortSignal): Promise<Slice[]> {
+/**
+ * All images of a series, in instance order, expanding multi-frame instances into frames.
+ * Pages through the instances: a server may return fewer than asked per page, so the offset moves
+ * by what came back, and only an empty page (or reaching `expected`, the series' instance count
+ * when known) ends the list.
+ */
+export async function slicesOfSeries(studyUid: string, seriesUid: string, signal?: AbortSignal, expected?: number): Promise<Slice[]> {
   const instances: DicomJson[] = [];
   const group = instancesUrl(studyUid, seriesUid);
-  for (let offset = 0; offset < MAX_INSTANCES; offset += QIDO_PAGE) {
+  let offset = 0;
+  while (offset < MAX_INSTANCES) {
     const page = await qido(instancesUrl(studyUid, seriesUid, offset), signal, group);
+    if (page.length === 0) break;
     instances.push(...page);
-    if (page.length < QIDO_PAGE) break;
+    offset += page.length;
+    if (expected !== undefined && offset >= expected) break;
   }
   const seen = new Set<string>();
   const slices: Slice[] = [];
