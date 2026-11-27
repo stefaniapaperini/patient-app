@@ -30,12 +30,27 @@ npm test           # unit tests
 npm run build      # production build
 ```
 
+The app is only available while `npm run dev` keeps running: leave that terminal open and open
+http://localhost:3000 in your browser. Closing the terminal (or pressing Ctrl+C, or restarting the
+computer) stops it, and the browser then reports that it cannot connect. Run `npm run dev` again to
+start it. `npm install` is only needed the first time and after dependencies change.
+
 ## Run in Docker (http://localhost:8080)
 
 ```bash
 docker build -t patient-app .
 docker run -p 8080:8080 --env-file .env patient-app
 ```
+
+To keep it running in the background and start it again automatically after a restart, run the
+container detached with a restart policy instead (Docker itself must start at boot):
+
+```bash
+docker run -d --name patient-app --restart unless-stopped -p 8080:8080 --env-file .env patient-app
+```
+
+Stop it with `docker stop patient-app`. After rebuilding the image, remove the old container with
+`docker rm -f patient-app` and run the command again.
 
 ## How it works
 
