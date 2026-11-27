@@ -5,6 +5,7 @@ Dockerfile
 .dockerignore
 *.md
 *.test.ts
+*.test.tsx
 # Secrets are passed at runtime with --env-file, never baked into the image
 .env
 .env.*
