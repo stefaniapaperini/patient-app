@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CODE_SYSTEMS, codeMeaning, codeUrl, dicomTagName, fieldDoc } from "@/lib/inspector/glossary";
+import { CODE_SYSTEMS, codeLookupText, codeMeaning, codeUrl, dicomTagName, fieldDoc } from "@/lib/inspector/glossary";
 
 /** "component[0].code" -> "component[*].code", so highlights can name every array item at once. */
 const wild = (p: string) => p.replace(/\[\d+\]/g, "[*]");
@@ -170,8 +170,10 @@ function Scalar({ value, name, parent }: { value: unknown; name?: string | numbe
     let meaning: string | undefined;
     let href: string | undefined;
     if (name === "code") {
-      meaning = codeMeaning(value);
-      href = codeUrl(typeof parent?.system === "string" ? parent.system : undefined, value);
+      const system = typeof parent?.system === "string" ? parent.system : undefined;
+      href = codeUrl(system, value);
+      // An unknown code that can be looked up (e.g. SNOMED CT) gets a link to do so.
+      meaning = codeMeaning(value) ?? (href ? codeLookupText(system) : undefined);
     } else if (name === "system") {
       meaning = CODE_SYSTEMS[value];
     } else if (name === "status") {

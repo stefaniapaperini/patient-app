@@ -48,4 +48,14 @@ describe("inspector components render", () => {
     expect(renderToString(<LearnTab />)).toContain("References");
     expect(renderToString(<CodeChip system="http://loinc.org" code="8867-4" />)).toContain("LOINC 8867-4");
   });
+  it("SNOMED CT codes link to the SNOMED CT browser", () => {
+    const chip = renderToString(<CodeChip system="http://snomed.info/sct" code="241046008" />);
+    expect(chip).toContain("conceptId1=241046008");
+    const tree = renderToString(<JsonTree value={{ coding: [{ system: "http://snomed.info/sct", code: "241046008" }] }} defaultDepth={9} />);
+    expect(tree).toContain("look it up in the SNOMED CT browser");
+    expect(tree).toContain("browser.ihtsdotools.org");
+    // Anything that isn't a concept id is not put into a link.
+    expect(renderToString(<CodeChip system="http://snomed.info/sct" code="x&y" />)).not.toContain("href");
+    expect(renderToString(<LearnTab />)).toContain("semantic tag");
+  });
 });

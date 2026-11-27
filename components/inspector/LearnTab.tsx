@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { patientStudiesUrl, qido, DICOMWEB_BASE } from "@/lib/dicom/dicomweb";
-import { DICOM_DICTIONARY, DICOM_PART18, DICOMWEB_SPEC, SEARCH_SPEC, specUrl } from "@/lib/inspector/glossary";
+import { DICOM_DICTIONARY, DICOM_PART18, DICOMWEB_SPEC, SEARCH_SPEC, SNOMED_BROWSER, specUrl } from "@/lib/inspector/glossary";
 import { getInspectorState, openPanel } from "@/lib/inspector/store";
 
 const tryIt = (url: string, method = "GET") => `/console?${new URLSearchParams({ method, url })}`;
@@ -92,9 +92,36 @@ export function LearnTab() {
         </p>
         <ul>
           <li><b>LOINC</b> (http://loinc.org) for measurements: <code>8867-4</code> is heart rate.</li>
-          <li><b>SNOMED CT</b> (http://snomed.info/sct) for diagnoses and findings.</li>
+          <li><b>SNOMED CT</b> (http://snomed.info/sct) for diagnoses, findings, procedures and body parts.</li>
           <li><b>RxNorm</b> for medicines.</li>
         </ul>
+        <p>
+          <b>SNOMED CT</b> is the largest clinical terminology, with several hundred thousand <b>concepts</b>. Each
+          concept is one clinical idea with a numeric id: <code>241046008</code> is a dental bitewing X-ray. The id
+          is what computers compare; the words are only for people. A concept has:
+        </p>
+        <ul>
+          <li>
+            a <b>fully specified name</b> that ends with its kind in brackets, the <i>semantic tag</i>:{" "}
+            <code>Dental plain X-ray bitewing (procedure)</code>. The tag tells apart concepts with similar words:{" "}
+            <code>(disorder)</code> is a disease, <code>(finding)</code> something observed,{" "}
+            <code>(procedure)</code> something done, <code>(body structure)</code> a part of the body;
+          </li>
+          <li>
+            <b>synonyms</b>, other names for the same concept, without the tag. So two resources can show
+            different text for the same code: compare the codes, not the words;
+          </li>
+          <li>
+            a place in a <b>hierarchy</b>: each concept <i>is a</i> kind of more general ones (a bitewing is a
+            kind of dental X-ray). That lets a system find, for example, every kind of X-ray at once.
+          </li>
+        </ul>
+        <p>
+          The <code>display</code> in a coding is the name the sender chose; Synthea, which generated this data,
+          uses the fully specified name, tag included. In the inspector, SNOMED CT codes link to the{" "}
+          <a href={SNOMED_BROWSER} target="_blank" rel="noreferrer">SNOMED CT browser</a>, which shows a concept’s
+          names and hierarchy.
+        </p>
         <p>
           The charts search by code. If the server stores temperature under a code the app doesn’t ask for, or
           doesn’t store it at all, the chart is empty. The inspector’s “Why is this empty?” check tells the two apart.

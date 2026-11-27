@@ -114,7 +114,7 @@ The app has Postman-like tools built in, for checking the FHIR data behind the s
   titled with that element:
   1. the request the app sent, with every query parameter explained, its status and time;
   2. the resources behind the element, with the displayed fields highlighted. Hover a field name
-     for an explanation; codes show their meaning (LOINC codes link to loinc.org).
+     for an explanation; codes show their meaning (LOINC codes link to loinc.org, SNOMED CT codes to the SNOMED CT browser).
 
   On an empty vital-sign chart, **“Why is this empty?” → Check the server** fetches all of the
   patient’s Observations without the code filter and says whether the data is missing on the server

@@ -91,8 +91,23 @@ export const CODE_SYSTEMS: Record<string, string> = {
   "http://terminology.hl7.org/CodeSystem/observation-category": "HL7 code system for observation categories.",
 };
 
+/** SNOMED International's official browser, which shows a concept's names, kind and hierarchy. */
+export const SNOMED_BROWSER = "https://browser.ihtsdotools.org/";
+
+/** Where a code can be looked up: LOINC codes on loinc.org, SNOMED CT concepts in the SNOMED CT browser. */
 export function codeUrl(system: string | undefined, code: string): string | undefined {
   if (system === "http://loinc.org") return `https://loinc.org/${encodeURIComponent(code)}/`;
+  // SNOMED CT concept ids are 6 to 18 digits.
+  if (system === "http://snomed.info/sct" && /^\d{6,18}$/.test(code)) {
+    return `${SNOMED_BROWSER}?perspective=full&conceptId1=${code}&edition=MAIN&release=&languages=en`;
+  }
+  return undefined;
+}
+
+/** Text for a link to look a code up, when the glossary doesn't know its meaning. */
+export function codeLookupText(system: string | undefined): string | undefined {
+  if (system === "http://loinc.org") return "look it up on loinc.org";
+  if (system === "http://snomed.info/sct") return "look it up in the SNOMED CT browser";
   return undefined;
 }
 

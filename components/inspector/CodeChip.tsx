@@ -10,7 +10,7 @@ const SHORT: Record<string, string> = {
 
 /**
  * A code as a small chip (shown while the inspector is on), e.g. "LOINC 8867-4".
- * Hovering explains the code and its code system; LOINC codes link to loinc.org.
+ * Hovering explains the code and its code system; LOINC and SNOMED CT codes link to where they can be looked up.
  */
 export function CodeChip({ system, code, display }: { system?: string; code?: string; display?: string }) {
   if (!code) return null;
