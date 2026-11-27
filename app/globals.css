@@ -287,3 +287,9 @@ tr.row-wanted td { background: #e7f5ec; font-weight: 600; }
 .console-preview ul { margin: 0.3rem 0; padding-left: 1.1rem; }
 .examples { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
 @media (max-width: 640px) { .console-line { flex-wrap: wrap; } .console-base { display: none; } }
+
+/* Overview dialog */
+.overview-h { font-size: 0.95rem; margin: 0 0 0.4rem; }
+.overview-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.overview-links li { display: flex; flex-direction: column; gap: 0.1rem; }
+.overview-links a { font-weight: 600; }

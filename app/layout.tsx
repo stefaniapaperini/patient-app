@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { InspectorToggle } from "@/components/inspector/InspectorToggle";
+import { OverviewButton } from "@/components/OverviewDialog";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,7 +22,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </svg>
             Patient Management
           </Link>
-          <InspectorToggle />
+          <div className="topbar-tools">
+            <OverviewButton />
+            <InspectorToggle />
+          </div>
         </header>
         <main className="container">{children}</main>
         <InspectorPanel />
