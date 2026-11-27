@@ -39,7 +39,7 @@ h3 { font-size: 0.95rem; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.8rem 1.5rem; background: var(--surface); border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 650; font-size: 1.05rem; color: var(--text); display: flex; gap: 0.5rem; align-items: center; }
+.brand { font-weight: 650; font-size: 1.3rem; color: var(--primary); display: flex; gap: 0.5rem; align-items: center; }
 .brand:hover { text-decoration: none; }
 .brand-mark { color: var(--primary); flex-shrink: 0; }
 .topbar-note { color: var(--text-3); font-size: 0.8rem; }
@@ -293,3 +293,6 @@ tr.row-wanted td { background: #e7f5ec; font-weight: 600; }
 .overview-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
 .overview-links li { display: flex; flex-direction: column; gap: 0.1rem; }
 .overview-links a { font-weight: 600; }
+/* The rose sits at the left of the footer, the Close button stays on the right. */
+.overview-foot { justify-content: space-between; align-items: center; }
+.overview-rose { flex-shrink: 0; }
