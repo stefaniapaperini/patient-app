@@ -166,3 +166,24 @@ export interface Bundle<T extends Resource = Resource> extends Resource {
   link?: { relation: string; url: string }[];
   entry?: BundleEntry<T>[];
 }
+
+/** The fields the imaging section uses. The DICOM StudyInstanceUID is in identifier ("urn:oid:..."). */
+export interface ImagingStudy extends Resource {
+  resourceType: "ImagingStudy";
+  identifier?: { system?: string; value?: string }[];
+  status?: string;
+  subject?: Reference;
+  started?: string;
+  modality?: Coding[];
+  description?: string;
+  numberOfSeries?: number;
+  numberOfInstances?: number;
+  procedureCode?: CodeableConcept[];
+  series?: {
+    uid?: string;
+    modality?: Coding;
+    description?: string;
+    numberOfInstances?: number;
+    bodySite?: Coding;
+  }[];
+}

@@ -48,8 +48,9 @@ function OverviewDialog({ onClose }: { onClose: () => void }) {
       <div className="modal-body">
         <p>
           Patient Management lists, searches, creates and edits patients on a FHIR R4 server, and shows each
-          patient’s vital signs, conditions and medications. All data stays on the FHIR server; the app stores
-          nothing itself.
+          patient’s vital signs, conditions, medications and imaging studies. When a DICOMweb server is
+          configured, it also shows their DICOM images in a simple viewer. All data stays on the FHIR and DICOM
+          servers; the app stores nothing itself.
         </p>
         <p className="muted small">
           Switch on the <b>FHIR Inspector</b> in the header to see the FHIR requests and resources behind every

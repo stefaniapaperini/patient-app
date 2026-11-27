@@ -8,6 +8,7 @@ import { InspectButton, inspectable } from "@/components/inspector/Inspect";
 import { MedicationsSection } from "@/components/MedicationsSection";
 import { PatientFormModal } from "@/components/PatientFormModal";
 import { VitalsSection } from "@/components/VitalsSection";
+import { ImagingSection } from "@/components/ImagingSection";
 import { ErrorBanner, Loading } from "@/components/ui";
 import { fhirFetch, FhirError } from "@/lib/fhir/client";
 import { formatDate, formatGender, formatName } from "@/lib/fhir/format";
@@ -130,6 +131,7 @@ export default function PatientDetailPage() {
           <VitalsSection patientId={id} />
           <ConditionsSection patientId={id} />
           <MedicationsSection patientId={id} />
+          <ImagingSection patientId={id} />
         </>
       )}
 

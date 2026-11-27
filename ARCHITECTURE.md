@@ -2,7 +2,7 @@
 
 ## Overview
 
-Patient Management is a Next.js app for viewing and maintaining a small set of FHIR R4 resources: Patient (search, create, update), Observation vital signs, Condition, and MedicationRequest with referenced Medication. It also includes a FHIR Inspector, request log, learning panel and interactive console.
+Patient Management is a Next.js app for viewing and maintaining a small set of FHIR R4 resources: Patient (search, create, update), Observation vital signs, Condition, MedicationRequest with referenced Medication, and ImagingStudy. It also includes a FHIR Inspector, request log, learning panel and interactive console, and an optional DICOM image viewer that reads from a DICOMweb server.
 
 All clinical data stays on the upstream FHIR server. The app has no database and stores nothing locally. A server-side proxy keeps FHIR credentials off the client.
 
@@ -29,6 +29,7 @@ flowchart LR
 | `/patient/[id]` | One Patient with vitals, conditions and medications |
 | `/console` | GET, POST and PUT requests through the proxy |
 | `/api/fhir/[[...path]]` | Server-side proxy to the FHIR server |
+| `/api/dicomweb/[[...path]]` | Read-only proxy to the DICOMweb server (optional) |
 
 The root layout ([app/layout.tsx](app/layout.tsx)) provides navigation and mounts the inspector controls and panel.
 
@@ -86,11 +87,22 @@ Paging: the patient list loads 50 records per page as the user scrolls. Detail s
 
 | Method | Allowed |
 | --- | --- |
-| GET | Patient, Observation, Condition, MedicationRequest, Medication |
+| GET | Patient, Observation, Condition, MedicationRequest, Medication, ImagingStudy |
 | POST | `Patient` |
 | PUT | `Patient/{id}` |
 
 An empty path is allowed only for a GET of a HAPI `_getpages` paging link, which blocks transaction and batch writes at the server base.
+
+## Imaging (DICOMweb)
+
+Optional: enabled by `DICOMWEB_QIDO_URL` (and `DICOMWEB_WADO_URL` for servers with a separate retrieve root) in `.env`. Without it, `/api/dicomweb` reports `enabled: false` and the imaging section is not shown.
+
+- [components/ImagingSection.tsx](components/ImagingSection.tsx) reads the patient's FHIR ImagingStudy resources and looks up each StudyInstanceUID (from `identifier`, `urn:oid:…`) on the DICOM server with QIDO-RS. One request per study, a few at a time: the public server answers 204 for "no match" and does not support UID lists. Patients linked in `DICOM_DEMO_PATIENTS` also get the studies of an example DICOM patient, labelled as another person's images.
+- [components/DicomViewer.tsx](components/DicomViewer.tsx) lists a study's series, pages through its instances (QIDO-RS returns at most 100 per request), expands multi-frame instances, and shows each image as a JPEG rendered by the server (WADO-RS `/rendered`). No DICOM decoding happens in the browser.
+- [lib/dicom/dicomweb.ts](lib/dicom/dicomweb.ts) reads DICOM JSON and builds proxy URLs.
+- [app/api/dicomweb/[[...path]]/route.ts](app/api/dicomweb/[[...path]]/route.ts) with [lib/server/dicomweb.ts](lib/server/dicomweb.ts) is a read-only proxy: GET only; `qido/studies`, `…/series`, `…/instances` with the parameters `PatientID` (no wildcards), `StudyInstanceUID`, `includefield`, `limit` and `offset`; and `wado/…/instances/{uid}[/frames/{n}]/rendered` returning only JPEG or PNG. Uploads (STOW-RS), raw DICOM and anything else get 403. Rendered images are cached by the browser for a day, as they are addressed by UID and never change.
+
+Sending StudyInstanceUIDs and demo patient IDs to a public DICOM server is acceptable for synthetic data only.
 
 ## Write flow
 
@@ -113,7 +125,7 @@ Inspector mode is off after every page load and is never written to storage. Tur
 
 ## Security model
 
-The proxy is the security boundary. The browser never receives the token or the upstream URL, cannot reach arbitrary URLs, can read only allowlisted resource types (enforced on both the path and the response), and can write only Patient create and update requests. Writes are also refused unless they come from the app itself (`Sec-Fetch-Site`/`Origin`) with a JSON content type, so other websites open in the user's browser cannot use the proxy's token (CSRF). No FHIR data or log contents are written to browser storage.
+The proxy is the security boundary. The browser never receives the token or the upstream URL, cannot reach arbitrary URLs, can read only allowlisted resource types (enforced on both the path and the response), and can write only Patient create and update requests. Writes are also refused unless they come from the app itself (`Sec-Fetch-Site`/`Origin`) with a JSON content type, so other websites open in the user's browser cannot use the proxy's token (CSRF). No FHIR data or log contents are written to browser storage. The DICOMweb proxy is read-only and allowlisted the same way; it needs no credentials, and the browser never receives the DICOM server's address either.
 
 The app has no user authentication or authorization of its own. The deployment environment must protect access to the UI and to the FHIR server.
 

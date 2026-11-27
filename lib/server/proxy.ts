@@ -11,6 +11,8 @@ export const ALLOWED_RESOURCES = new Set([
   "Condition",
   "MedicationRequest",
   "Medication",
+  // Read-only, for the imaging section: links a patient to DICOM studies by StudyInstanceUID.
+  "ImagingStudy",
 ]);
 
 /** A single path segment: resource type, id, or "_history"/version id. */

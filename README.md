@@ -19,6 +19,24 @@ FHIR_TOKEN=your-bearer-token
 The token is only read by the server-side proxy and is never sent to the browser. `.env` is
 ignored by git and by Docker builds.
 
+### Imaging (optional)
+
+To show DICOM images on the patient page, also set the DICOMweb server (see `.env.example`):
+
+```
+DICOMWEB_QIDO_URL=https://dicomserver.co.uk:8989/qido
+DICOMWEB_WADO_URL=https://dicomserver.co.uk:8989/wado
+DICOM_DEMO_PATIENTS=fhirPatientId:MC_EXAMPLE_1,otherFhirPatientId:MC_EXAMPLE_3
+```
+
+Without `DICOMWEB_QIDO_URL` the imaging section is hidden. Servers with a single DICOMweb root
+only need `DICOMWEB_QIDO_URL`. `DICOM_DEMO_PATIENTS` is optional: it links FHIR patients to example
+patients on the DICOM server, to demonstrate the viewer (see "Imaging" below).
+
+**The public server [dicomserver.co.uk](https://www.dicomserver.co.uk/) is for testing only.** The
+app looks up FHIR ImagingStudy UIDs and demo patient IDs there. That is fine for synthetic data
+such as Synthea's, but never point the app at a public server with real patient data.
+
 ## Run locally (http://localhost:3000)
 
 Requires Node.js 20.9 or newer.
@@ -56,7 +74,7 @@ Stop it with `docker stop patient-app`. After rebuilding the image, remove the o
 
 - **FHIR proxy** – `app/api/fhir/[[...path]]/route.ts`. The browser calls `/api/fhir/<path>?<query>`;
   the proxy forwards it to `${FHIR_BASE_URL}/<path>?<query>` with `Authorization: Bearer …`.
-  It only allows reading Patient, Observation, Condition, MedicationRequest and Medication, and
+  It only allows reading Patient, Observation, Condition, MedicationRequest, Medication and ImagingStudy, and
   only two writes: `POST /Patient` and `PUT /Patient/{id}` (anything else gets 403). It rewrites
   Bundle paging links so they go back through the proxy, and turns network failures, timeouts
   and auth errors into FHIR `OperationOutcome` messages.
@@ -73,6 +91,16 @@ Stop it with `docker stop patient-app`. After rebuilding the image, remove the o
   Active / Not active / All switch; medications with dose, frequency, route and status. Medication
   names come from `medicationCodeableConcept`, or from `medicationReference` resolved through
   `_include`, contained resources, or a separate `GET /Medication/{id}`.
+
+- **Imaging** (patient page, only when a DICOMweb server is configured) – lists the patient's FHIR
+  `ImagingStudy` resources and looks up each StudyInstanceUID on the DICOM server (QIDO-RS).
+  Studies found there can be opened in a viewer: pick a series, then step through its images
+  with the slider, the mouse wheel or the arrow keys. Images are JPEGs rendered by the DICOM
+  server (WADO-RS `/rendered`), with its default contrast: for viewing and learning, not for
+  diagnosis. A patient linked in `DICOM_DEMO_PATIENTS` also shows the studies of that example
+  DICOM patient, marked "Demo images – not this patient". The Synthea data's ImagingStudy UIDs are
+  made up, so their images are not on any server: the demo links are how the viewer can be tried.
+  All DICOM requests go through a read-only proxy, `app/api/dicomweb/[[...path]]/route.ts`.
 
 The vitals query also includes `85354-9` (the blood pressure panel code used by Synthea and US Core)
 and standalone systolic/diastolic codes, so blood pressure shows however it is stored.
