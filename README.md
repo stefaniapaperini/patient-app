@@ -87,3 +87,15 @@ The app has Postman-like tools built in, for checking the FHIR data behind the s
 
 “Copy as curl” never contains the token: it uses `$FHIR_BASE_URL` and `$FHIR_TOKEN`. Load them with
 `set -a; source .env; set +a` before running the command in a terminal.
+
+## License
+
+This project is released under the [MIT License](LICENSE): you may use, copy, modify and distribute
+it for any purpose, as long as the copyright and license notice are kept with copies of the code. It is made for learning
+FHIR and is **not a medical device**: do not use it for real clinical decisions.
+
+Third-party components keep their own licenses. The npm dependencies are mainly MIT, ISC,
+Apache-2.0 and BSD licensed; see each package in `node_modules` for its license text. The app
+shows the names of a few LOINC codes (in `lib/inspector/glossary.ts`). This material contains
+content from LOINC® (https://loinc.org), which is copyright © Regenstrief Institute, Inc. and the
+LOINC Committee and is available at no cost under the license at https://loinc.org/license.
